@@ -1,53 +1,130 @@
-<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#020617" />
-  <title>로켓 수급노트</title>
-  <style>
-    *{box-sizing:border-box} body{margin:0;background:#020617;color:white;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-    .wrap{max-width:430px;margin:0 auto;min-height:100vh;padding:20px 16px 92px;background:#020617}
-    .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-    .sub{color:#94a3b8;font-size:14px}.title{font-size:28px;font-weight:800;margin:2px 0}
-    .icon{width:46px;height:46px;border-radius:18px;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:24px}
-    .summary,.card,.sector,.notice{background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-    .summary{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;margin-bottom:14px}
-    .num{font-size:22px;font-weight:800}.label{font-size:12px;color:#94a3b8;margin-top:3px}
-    input{width:100%;background:#0f172a;border:1px solid #1e293b;border-radius:18px;color:white;padding:13px 14px;margin:0;outline:none}
-    .tabs{display:flex;gap:8px;overflow-x:auto;margin:12px 0 14px;padding-bottom:4px}
-    .tab{border:0;border-radius:999px;padding:10px 15px;background:#0f172a;color:#94a3b8;white-space:nowrap}
-    .tab.active{background:white;color:#020617;font-weight:700}
-    .list{display:flex;flex-direction:column;gap:14px}.row{display:flex;justify-content:space-between;gap:10px}.name{font-size:19px;font-weight:800}.code,.muted{color:#94a3b8;font-size:13px}
-    .star{width:42px;height:42px;border:0;border-radius:16px;background:#1e293b;color:#94a3b8;font-size:20px}.star.on{background:rgba(234,179,8,.18);color:#fde047}
-    .badges,.signals{display:flex;gap:8px;overflow-x:auto;margin:12px 0}.badge{font-size:12px;padding:7px 10px;border-radius:999px;white-space:nowrap}
-    .blue{background:rgba(59,130,246,.16);color:#93c5fd}.green{background:rgba(16,185,129,.16);color:#6ee7b7}.orange{background:rgba(249,115,22,.16);color:#fdba74}
-    .bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin:8px 0 14px}.fill{height:100%;background:white;border-radius:99px}
-    .signal{font-size:12px;background:#1e293b;color:#e2e8f0;padding:8px 10px;border-radius:999px;white-space:nowrap}
-    .info{font-size:14px;color:#cbd5e1;line-height:1.8}.reason{background:#020617;border-radius:18px;padding:12px;margin:12px 0}.reason p{margin:4px 0 0;color:#cbd5e1;font-size:14px;line-height:1.55}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.box{background:#1e293b;border-radius:16px;padding:10px}.box b{display:block;font-size:12px;color:#94a3b8;margin-bottom:5px}.box span{font-size:12px}
-    .bottom{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:calc(100% - 32px);max-width:430px;background:rgba(15,23,42,.96);border:1px solid #1e293b;border-radius:24px;display:flex;justify-content:space-around;padding:12px}
-    .bottom button{background:none;border:0;color:#cbd5e1;font-size:12px}.refresh{border:0;border-radius:16px;background:white;color:#020617;font-weight:800;padding:11px 14px}.small{font-size:12px;color:#94a3b8}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="top"><div><div class="sub">아이폰 수급포착 앱</div><div class="title">로켓 수급노트</div><div class="small" id="updated">데이터 불러오는 중...</div></div><div class="icon">🚀</div></div>
-    <div class="summary"><div><div class="num" id="topCount">-</div><div class="label">강관심 이상</div></div><div><div class="num" id="bigTradeCount">-</div><div class="label">대량체결</div></div><div><div class="num" id="sectorCount">-</div><div class="label">주도섹터</div></div></div>
-    <div style="display:flex;gap:8px"><input id="q" placeholder="종목명, 코드, 섹터 검색" /><button class="refresh" onclick="loadData()">새로고침</button></div>
-    <div class="tabs" id="tabs"></div><div class="list" id="content"><div class="notice">데이터를 불러오는 중입니다.</div></div>
-  </div>
-  <div class="bottom"><button onclick="setTab('포착')">📡<br>포착</button><button onclick="setTab('섹터')">📊<br>섹터</button><button onclick="setTab('대량체결')">🔥<br>체결</button><button onclick="setTab('기록')">📝<br>기록</button></div>
-<script>
-const tabs=["포착","섹터","프로그램","대량체결","눌림반등","기록"];
-let active="포착", stocks=[], sectors=[], saved=JSON.parse(localStorage.getItem("saved")||"{}");
-function label(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
-function setTab(t){active=t;render()} document.getElementById("q").addEventListener("input",render);
-async function loadData(){const c=document.getElementById("content");c.innerHTML='<div class="notice">최신 데이터를 불러오는 중입니다.</div>';try{const res=await fetch("/api/stocks?ts="+Date.now());if(!res.ok)throw new Error(res.status);const data=await res.json();stocks=data.stocks||[];sectors=data.sectors||[];document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt:"업데이트 완료";document.getElementById("topCount").textContent=stocks.filter(s=>s.score>=75).length;document.getElementById("bigTradeCount").textContent=stocks.filter(s=>(s.bigTrade||"").includes("포착")).length;document.getElementById("sectorCount").textContent=sectors.length;render()}catch(e){c.innerHTML='<div class="notice">데이터를 불러오지 못했습니다.<br><br><span class="muted">GitHub에 api/stocks.js 파일이 있는지 확인해 주세요.</span></div>';document.getElementById("updated").textContent="데이터 연결 필요"}}
-function renderTabs(){document.getElementById("tabs").innerHTML=tabs.map(t=>`<button class="tab ${active===t?'active':''}" onclick="setTab('${t}')">${t}</button>`).join("")}
-function render(){renderTabs();const q=document.getElementById("q").value.trim(), c=document.getElementById("content");if(active==="섹터"){c.innerHTML=sectors.length?sectors.map((s,i)=>`<div class="sector"><div class="row"><div><div class="name">${i+1}. ${s.name}</div><div class="muted">대표 종목: ${s.leaders}</div></div><b>${s.change}</b></div><div class="row muted"><span>섹터 강도</span><span>${s.strength}점</span></div><div class="bar"><div class="fill" style="width:${s.strength}%"></div></div></div>`).join(""):'<div class="notice">섹터 데이터가 없습니다.</div>';return}let arr=stocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.sector||"").includes(q));if(active==="프로그램")arr=arr.filter(s=>(s.programBuy||"").includes("순매수"));if(active==="대량체결")arr=arr.filter(s=>(s.bigTrade||"").includes("포착"));if(active==="눌림반등")arr=arr.filter(s=>(s.status||"").includes("눌림")||(s.status||"").includes("반등"));if(active==="기록")arr=arr.filter(s=>saved[s.code]);c.innerHTML=arr.length?arr.map(s=>`<div class="card"><div class="row"><div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.sector}</div></div><button class="star ${saved[s.code]?'on':''}" onclick="toggle('${s.code}')">★</button></div><div class="badges"><span class="badge blue">${s.status}</span><span class="badge green">${label(s.score)}</span><span class="badge orange">${s.sectorRank}</span></div><div class="row muted"><span>수급포착 점수</span><span>${s.score}점</span></div><div class="bar"><div class="fill" style="width:${s.score}%"></div></div><div class="signals"><span class="signal">${s.programBuy}</span><span class="signal">${s.bigTrade}</span><span class="signal">${s.sectorRank}</span></div><div class="info">💰 ${s.supply}<br>📊 ${s.volume}<br>✅ ${s.chart}<br>🔥 대량체결 금액 ${s.bigTradeAmount}</div><div class="reason"><span class="muted">포착 판단</span><p>${s.reason}</p></div><div class="grid"><div class="box"><b>매수 후보</b><span>${s.buy}</span></div><div class="box"><b>손절 기준</b><span>${s.stop}</span></div><div class="box"><b>목표 구간</b><span>${s.target}</span></div></div></div>`).join(""):'<div class="notice">조건에 맞는 종목이 없습니다.</div>'}
-function toggle(code){saved[code]=!saved[code];localStorage.setItem("saved",JSON.stringify(saved));render()}
-loadData();
-</script>
-</body>
-</html>
+export default async function handler(req, res) {
+  try {
+    const tokenRes = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "client_credentials",
+        appkey: process.env.KIS_APP_KEY,
+        appsecret: process.env.KIS_APP_SECRET
+      })
+    });
+
+    const tokenData = await tokenRes.json();
+
+    if (!tokenData.access_token) {
+      return res.status(500).json({
+        success: false,
+        message: "한국투자증권 토큰 발급 실패",
+        detail: tokenData
+      });
+    }
+
+    const ACCESS_TOKEN = tokenData.access_token;
+
+    const targets = [
+      { code: "204320", name: "HL만도", sector: "자동차부품", sectorRank: "자동차부품 관찰" },
+      { code: "064350", name: "현대로템", sector: "방산/철도", sectorRank: "방산/철도 관찰" },
+      { code: "010140", name: "삼성중공업", sector: "조선", sectorRank: "조선 관찰" }
+    ];
+
+    const stocks = [];
+
+    for (const item of targets) {
+      const priceRes = await fetch(
+        `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${item.code}`,
+        {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${ACCESS_TOKEN}`,
+            appkey: process.env.KIS_APP_KEY,
+            appsecret: process.env.KIS_APP_SECRET,
+            tr_id: "FHKST01010100"
+          }
+        }
+      );
+
+      const priceData = await priceRes.json();
+
+      if (!priceData.output) {
+        stocks.push({
+          name: item.name,
+          code: item.code,
+          sector: item.sector,
+          price: "조회실패",
+          change: "-",
+          status: "데이터 확인 필요",
+          sectorRank: item.sectorRank,
+          programBuy: "확인 필요",
+          bigTrade: "확인 필요",
+          bigTradeAmount: "확인 필요",
+          supply: "확인 필요",
+          volume: "확인 필요",
+          chart: "확인 필요",
+          score: 0,
+          reason: "한국투자증권 시세 응답을 확인해야 합니다.",
+          buy: "판단 보류",
+          stop: "판단 보류",
+          target: "판단 보류"
+        });
+        continue;
+      }
+
+      const output = priceData.output;
+      const currentPrice = Number(output.stck_prpr || 0);
+      const changeRate = Number(output.prdy_ctrt || 0);
+      const volume = Number(output.acml_vol || 0);
+
+      let score = 50;
+      if (changeRate > 0) score += 10;
+      if (changeRate > 2) score += 10;
+      if (volume > 1000000) score += 10;
+      if (volume > 5000000) score += 10;
+      score = Math.min(score, 100);
+
+      let status = "관찰";
+      if (score >= 85) status = "당일 주도주 후보";
+      else if (score >= 75) status = "수급 유입 확인";
+      else if (score >= 60) status = "눌림반등 관찰";
+
+      stocks.push({
+        name: item.name,
+        code: item.code,
+        sector: item.sector,
+        price: currentPrice.toLocaleString(),
+        change: `${output.prdy_ctrt || "0"}%`,
+        status,
+        sectorRank: item.sectorRank,
+        programBuy: "프로그램 수급 확인 필요",
+        bigTrade: volume > 1000000 ? "거래량 증가 포착" : "대량체결 확인 필요",
+        bigTradeAmount: "API 추가 연결 필요",
+        supply: "외국인/기관 수급 API 추가 연결 필요",
+        volume: `누적거래량 ${volume.toLocaleString()}주`,
+        chart: changeRate > 0 ? "양봉 반등 확인 필요" : "눌림 구간 관찰",
+        score,
+        reason: "현재가는 한국투자증권 실시간 시세로 반영됐고, 수급·대량체결은 추가 API 연결 후 정밀 계산 예정입니다.",
+        buy: "분할 접근",
+        stop: "-3% 또는 직전 저점 이탈",
+        target: "+5~7% / 전고점"
+      });
+    }
+
+    const sectors = [
+      { name: "조선", change: "실시간 확인", strength: 80, leaders: "삼성중공업" },
+      { name: "방산/철도", change: "실시간 확인", strength: 80, leaders: "현대로템" },
+      { name: "자동차부품", change: "실시간 확인", strength: 75, leaders: "HL만도" }
+    ];
+
+    res.status(200).json({
+      success: true,
+      updatedAt: new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }),
+      stocks,
+      sectors
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}

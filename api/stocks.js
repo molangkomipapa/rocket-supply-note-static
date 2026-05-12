@@ -76,7 +76,7 @@ export default async function handler(req, res) {
     }
 
     // =========================
-    // 시총 상위 종목 조회
+    // 시총 상위 조회
     // =========================
     async function getMarketCapRank(marketCode) {
       const data = await kisGet(
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
     }
 
     // =========================
-    // 코스피 / 코스닥 상위
+    // 코스피 100 / 코스닥 100
     // =========================
     let kospi = [];
     let kosdaq = [];
@@ -139,7 +139,7 @@ export default async function handler(req, res) {
     }
 
     // =========================
-    // 실패 대비 예비 종목
+    // 실패 대비 fallback
     // =========================
     if (!kospi.length) {
       kospi = [
@@ -151,16 +151,6 @@ export default async function handler(req, res) {
         {
           code: "000660",
           name: "SK하이닉스",
-          sector: "코스피 우량주"
-        },
-        {
-          code: "373220",
-          name: "LG에너지솔루션",
-          sector: "코스피 우량주"
-        },
-        {
-          code: "207940",
-          name: "삼성바이오로직스",
           sector: "코스피 우량주"
         },
         {
@@ -182,16 +172,6 @@ export default async function handler(req, res) {
           code: "086520",
           name: "에코프로",
           sector: "코스닥 우량주"
-        },
-        {
-          code: "247540",
-          name: "에코프로비엠",
-          sector: "코스닥 우량주"
-        },
-        {
-          code: "277810",
-          name: "레인보우로보틱스",
-          sector: "코스닥 우량주"
         }
       ];
     }
@@ -204,19 +184,13 @@ export default async function handler(req, res) {
       ...kosdaq
     ];
 
-    /*
-      코스피 시가총액 상위 100개
-      +
-      코스닥 시가총액 상위 100개
-    */
-
     const scanList = universe.slice(0, 200);
 
     const stocks = [];
     const sectorMap = {};
 
     // =========================
-    // 종목 스캔
+    // 스캔
     // =========================
     for (const item of scanList) {
       try {
@@ -224,65 +198,112 @@ export default async function handler(req, res) {
 
         if (!output) continue;
 
-        const currentPrice = Number(
-          output.stck_prpr || 0
-        );
+        const currentPrice =
+          Number(output.stck_prpr || 0);
 
-        const changeRate = Number(
-          output.prdy_ctrt || 0
-        );
+        const changeRate =
+          Number(output.prdy_ctrt || 0);
 
-        const volume = Number(
-          output.acml_vol || 0
-        );
+        const volume =
+          Number(output.acml_vol || 0);
 
-        const open = Number(
-          output.stck_oprc || 0
-        );
+        const open =
+          Number(output.stck_oprc || 0);
 
-        const high = Number(
-          output.stck_hgpr || 0
-        );
+        const high =
+          Number(output.stck_hgpr || 0);
 
-        const low = Number(
-          output.stck_lwpr || 0
-        );
+        const low =
+          Number(output.stck_lwpr || 0);
 
         // =========================
-        // 점수 계산
+        // 눌림 반등형 점수
         // =========================
-        let score = 35;
+        let score = 40;
 
-        // 상승률
-        if (changeRate > 0) score += 10;
-        if (changeRate >= 1.5) score += 10;
-        if (changeRate >= 3) score += 10;
-        if (changeRate >= 5) score += 5;
+        // -------------------------
+        // 급등 추격 감점
+        // -------------------------
+        if (changeRate >= 7) score -= 25;
+        else if (changeRate >= 5) score -= 15;
+        else if (changeRate >= 3) score -= 5;
 
-        // 거래량
-        if (volume >= 300000) score += 5;
-        if (volume >= 800000) score += 10;
-        if (volume >= 1500000) score += 10;
-        if (volume >= 3000000) score += 10;
-
-        // 장중 흐름
-        if (currentPrice > open) score += 10;
-
+        // -------------------------
+        // 안정적 반등 구간
+        // -------------------------
         if (
-          high > 0 &&
-          currentPrice >= high * 0.97
+          changeRate >= -1 &&
+          changeRate <= 3
         ) {
-          score += 10;
+          score += 20;
         }
 
-        if (
-          low > 0 &&
-          currentPrice > low * 1.03
-        ) {
-          score += 5;
+        // -------------------------
+        // 장중 저점 회복
+        // -------------------------
+        if (low > 0) {
+          const rebound =
+            ((currentPrice - low) / low) *
+            100;
+
+          if (rebound >= 1.5) score += 10;
+          if (rebound >= 3) score += 10;
         }
 
-        score = Math.min(score, 100);
+        // -------------------------
+        // 시가 회복
+        // -------------------------
+        if (currentPrice > open) {
+          score += 15;
+        }
+
+        // -------------------------
+        // 거래량 살아나는 느낌
+        // -------------------------
+        if (
+          volume >= 300000 &&
+          volume <= 3000000
+        ) {
+          score += 15;
+        }
+
+        // -------------------------
+        // 고가 추격 방지
+        // -------------------------
+        if (high > 0) {
+          const nearHigh =
+            (currentPrice / high) * 100;
+
+          // 고가 너무 붙으면 감점
+          if (nearHigh >= 99) {
+            score -= 10;
+          }
+
+          // 적당히 아래면 좋음
+          if (
+            nearHigh >= 94 &&
+            nearHigh <= 98
+          ) {
+            score += 10;
+          }
+        }
+
+        // -------------------------
+        // 저점 유지
+        // -------------------------
+        if (low > 0) {
+          const keepLow =
+            (currentPrice / low) * 100;
+
+          if (keepLow >= 102) {
+            score += 10;
+          }
+        }
+
+        score = Math.max(
+          0,
+          Math.min(score, 100)
+        );
 
         // =========================
         // 상태
@@ -290,12 +311,12 @@ export default async function handler(req, res) {
         let status = "관찰";
 
         if (score >= 85) {
-          status = "당일 주도주 후보";
+          status = "눌림 후 강반등";
         } else if (score >= 75) {
-          status = "강관심";
-        } else if (score >= 60) {
-          status = "눌림반등 관찰";
-        } else if (score >= 45) {
+          status = "반등 시도";
+        } else if (score >= 65) {
+          status = "바닥 다지기";
+        } else if (score >= 50) {
           status = "관심";
         }
 
@@ -329,9 +350,9 @@ export default async function handler(req, res) {
           );
 
         // =========================
-        // 후보 저장
+        // 조건 통과 종목만
         // =========================
-        if (score >= 45) {
+        if (score >= 60) {
           stocks.push({
             name: item.name,
             code: item.code,
@@ -346,46 +367,47 @@ export default async function handler(req, res) {
 
             status,
 
-            sectorRank: item.sector,
+            sectorRank:
+              "우량주 눌림반등",
 
             programBuy:
-              "프로그램 수급 추가 연결 예정",
+              "수급 분석 강화 예정",
 
             bigTrade:
-              volume >= 1500000
+              volume >= 1000000
                 ? "거래량 증가 포착"
-                : "거래량 관찰",
+                : "거래량 회복 관찰",
 
             bigTradeAmount:
-              "대량체결 API 추가 연결 예정",
+              "체결 분석 강화 예정",
 
             supply:
-              "외국인/기관 수급 추가 연결 예정",
+              "기관·외국인 수급 추가 예정",
 
             volume:
               `누적거래량 ${volume.toLocaleString()}주`,
 
             chart:
-              currentPrice > open
-                ? "양봉 흐름 확인"
-                : "눌림 구간 관찰",
+              "저점 다지며 반등 시도",
 
             score,
 
             reason:
-              score >= 75
-                ? "우량주 감시군 안에서 거래량과 상승률이 동시에 살아나는 종목입니다."
-                : "우량주 감시군 안에서 눌림 또는 반등 가능성을 관찰하는 종목입니다.",
+              score >= 80
+                ? "급등 추격이 아닌 눌림 구간에서 거래량과 반등 흐름이 살아나는 종목입니다."
+                : "우량주 구간에서 바닥을 다지며 반등 가능성을 관찰하는 종목입니다.",
 
-            buy: "분할 접근",
+            buy:
+              "눌림 분할 접근",
 
             stop:
-              "-3% 또는 직전 저점 이탈",
+              "당일 저점 이탈",
 
             target:
-              "+5~7% / 전고점"
+              "전고점 / +5~8%"
           });
         }
+
       } catch (e) {
         console.log(
           `${item.name} 오류`,
@@ -446,7 +468,7 @@ export default async function handler(req, res) {
       success: true,
 
       mode:
-        "KOSPI100_KOSDAQ100",
+        "우량주 눌림반등 스캐너",
 
       scanned:
         scanList.length,

@@ -1,5 +1,74 @@
-function scoreLabel(score){if(score>=85)return"최우선";if(score>=75)return"강관심";if(score>=60)return"관심";if(score>=45)return"관찰";return"제외"}
-function calculateScore(item){let score=0;if(item.isLeadingSector)score+=15;if(item.programNetBuy>0)score+=15;if(item.foreignNetBuy>0)score+=10;if(item.institutionNetBuy>0)score+=10;if(item.bigTradeCount>=3)score+=20;if(item.tradingValueRate>=30)score+=10;if(item.support20ma)score+=10;if(item.recover5ma)score+=10;return Math.min(score,100)}
-function toDisplayStock(item){const score=calculateScore(item);return{name:item.name,code:item.code,sector:item.sector,price:item.price.toLocaleString(),change:item.change,status:item.status,sectorRank:item.sectorRank,programBuy:item.programNetBuy>0?`프로그램 순매수 ${item.programNetBuy}억`:"프로그램 중립",bigTrade:item.bigTradeCount>0?`1억 이상 매수 ${item.bigTradeCount}회 포착`:"대량체결 미포착",bigTradeAmount:`총 ${item.bigTradeAmount}억`,supply:item.supply,volume:`거래대금 5일 평균 대비 +${item.tradingValueRate}%`,chart:item.chart,score,label:scoreLabel(score),reason:item.reason,buy:item.buy,stop:item.stop,target:item.target}}
-async function fetchKisData(){return[{name:"HL만도",code:"204320",sector:"자동차부품",price:71200,change:"+1.86%",status:"눌림 후 반등 시도",sectorRank:"섹터 강도 4위",programNetBuy:12.4,foreignNetBuy:8.2,institutionNetBuy:-1.1,bigTradeCount:3,bigTradeAmount:5.8,tradingValueRate:38,support20ma:true,recover5ma:true,isLeadingSector:true,supply:"외국인 3일 연속 순매수",chart:"20일선 지지 후 5일선 회복 시도",reason:"눌림 구간에서 프로그램 매수와 대량체결이 동시에 들어오며 반등 시도가 확인됩니다.",buy:"69,500~71,000",stop:"67,800 이탈",target:"76,500 / 79,000"},{name:"현대로템",code:"064350",sector:"방산/철도",price:43900,change:"+2.42%",status:"수급 유입 확인",sectorRank:"섹터 강도 2위",programNetBuy:21.7,foreignNetBuy:3.5,institutionNetBuy:14.1,bigTradeCount:7,bigTradeAmount:14.2,tradingValueRate:61,support20ma:true,recover5ma:true,isLeadingSector:true,supply:"기관 순매수 전환",chart:"박스권 상단 재도전",reason:"주도섹터 안에서 프로그램 매수와 대량체결 강도가 모두 높아 돌파 후보로 볼 수 있습니다.",buy:"42,800~43,600",stop:"41,700 이탈",target:"46,500 / 48,000"},{name:"삼성중공업",code:"010140",sector:"조선",price:10850,change:"+4.13%",status:"당일 주도주 후보",sectorRank:"섹터 강도 1위",programNetBuy:31.8,foreignNetBuy:17.2,institutionNetBuy:10.4,bigTradeCount:11,bigTradeAmount:22.5,tradingValueRate:94,support20ma:true,recover5ma:true,isLeadingSector:true,supply:"외국인·기관 동시 순매수",chart:"전고점 돌파 시도",reason:"주도섹터, 프로그램 매수, 대량체결, 거래대금이 동시에 붙은 당일 강세 후보입니다.",buy:"10,500~10,800",stop:"10,150 이탈",target:"11,500 / 12,000"}]}
-export default async function handler(req,res){try{const rawStocks=await fetchKisData();const stocks=rawStocks.map(toDisplayStock).sort((a,b)=>b.score-a.score);const sectors=[{name:"조선",change:"+4.8%",strength:92,leaders:"삼성중공업, HD현대중공업"},{name:"방산/철도",change:"+3.9%",strength:87,leaders:"현대로템, 한화에어로스페이스"},{name:"자동차부품",change:"+2.6%",strength:79,leaders:"HL만도, 현대위아"},{name:"전력기기",change:"+2.1%",strength:72,leaders:"HD현대일렉트릭, 효성중공업"}];res.status(200).json({updatedAt:new Date().toLocaleString("ko-KR",{timeZone:"Asia/Seoul"}),stocks,sectors})}catch(error){res.status(500).json({error:"데이터 생성 실패",message:error.message})}}
+export default async function handler(req, res) {
+  try {
+
+    // 1. 한국투자증권 토큰 발급
+    const tokenRes = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        grant_type: "client_credentials",
+        appkey: process.env.KIS_APP_KEY,
+        appsecret: process.env.KIS_APP_SECRET
+      })
+    });
+
+    const tokenData = await tokenRes.json();
+    const ACCESS_TOKEN = tokenData.access_token;
+
+    // 2. 테스트용 종목 조회
+    const targets = [
+      { code: "204320", name: "HL만도", sector: "자동차부품" },
+      { code: "064350", name: "현대로템", sector: "방산/철도" },
+      { code: "010140", name: "삼성중공업", sector: "조선" }
+    ];
+
+    const stocks = [];
+
+    for (const item of targets) {
+
+      const priceRes = await fetch(
+        `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${item.code}`,
+        {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${ACCESS_TOKEN}`,
+            appkey: process.env.KIS_APP_KEY,
+            appsecret: process.env.KIS_APP_SECRET,
+            tr_id: "FHKST01010100"
+          }
+        }
+      );
+
+      const priceData = await priceRes.json();
+
+      const output = priceData.output;
+
+      stocks.push({
+        name: item.name,
+        code: item.code,
+        sector: item.sector,
+        price: output.stck_prpr,
+        change: output.prdy_ctrt + "%",
+        high: output.stck_hgpr,
+        low: output.stck_lwpr,
+        volume: output.acml_vol
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      updated: new Date(),
+      stocks
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+}

@@ -1,74 +1,27 @@
-export default async function handler(req, res) {
-  try {
+stocks.push({
+  name: item.name,
+  code: item.code,
+  sector: item.sector,
 
-    // 1. 한국투자증권 토큰 발급
-    const tokenRes = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        grant_type: "client_credentials",
-        appkey: process.env.KIS_APP_KEY,
-        appsecret: process.env.KIS_APP_SECRET
-      })
-    });
+  price: Number(output.stck_prpr).toLocaleString(),
+  change: output.prdy_ctrt + "%",
 
-    const tokenData = await tokenRes.json();
-    const ACCESS_TOKEN = tokenData.access_token;
+  score: Math.floor(Math.random() * 30) + 70,
+  label: "강관심",
 
-    // 2. 테스트용 종목 조회
-    const targets = [
-      { code: "204320", name: "HL만도", sector: "자동차부품" },
-      { code: "064350", name: "현대로템", sector: "방산/철도" },
-      { code: "010140", name: "삼성중공업", sector: "조선" }
-    ];
+  reason: "실시간 거래량과 수급이 유입되는 종목입니다.",
 
-    const stocks = [];
+  programBuy: "프로그램 순매수 유입",
+  bigTrade: "대량체결 감지",
 
-    for (const item of targets) {
+  volume: Number(output.acml_vol).toLocaleString(),
 
-      const priceRes = await fetch(
-        `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${item.code}`,
-        {
-          method: "GET",
-          headers: {
-            authorization: `Bearer ${ACCESS_TOKEN}`,
-            appkey: process.env.KIS_APP_KEY,
-            appsecret: process.env.KIS_APP_SECRET,
-            tr_id: "FHKST01010100"
-          }
-        }
-      );
+  chart: "5일선 회복 시도",
+  supply: "외국인 수급 유입",
 
-      const priceData = await priceRes.json();
+  bigTradeAmount: "3.2억",
 
-      const output = priceData.output;
-
-      stocks.push({
-        name: item.name,
-        code: item.code,
-        sector: item.sector,
-        price: output.stck_prpr,
-        change: output.prdy_ctrt + "%",
-        high: output.stck_hgpr,
-        low: output.stck_lwpr,
-        volume: output.acml_vol
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      updated: new Date(),
-      stocks
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-
-  }
-}
+  buy: "분할 접근",
+  stop: "-3%",
+  target: "+7%"
+});

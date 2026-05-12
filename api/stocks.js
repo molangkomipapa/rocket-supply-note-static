@@ -24,8 +24,7 @@ export default async function handler(req, res) {
     if (!tokenData.access_token) {
       return res.status(500).json({
         success: false,
-        message: "한국투자증권 토큰 발급 실패",
-        detail: tokenData
+        message: "한국투자증권 토큰 발급 실패"
       });
     }
 
@@ -35,17 +34,17 @@ export default async function handler(req, res) {
       authorization: `Bearer ${ACCESS_TOKEN}`,
       appkey: process.env.KIS_APP_KEY,
       appsecret: process.env.KIS_APP_SECRET,
-      "content-type": "application/json; charset=utf-8"
+      "content-type": "application/json"
     };
 
     // =========================
-    // 공통 GET 함수
+    // 공통 GET
     // =========================
     async function kisGet(path, trId, params) {
       const url = new URL(`${BASE_URL}${path}`);
 
-      Object.entries(params || {}).forEach(([key, value]) => {
-        url.searchParams.set(key, value);
+      Object.entries(params || {}).forEach(([k, v]) => {
+        url.searchParams.set(k, v);
       });
 
       const response = await fetch(url.toString(), {
@@ -121,7 +120,7 @@ export default async function handler(req, res) {
     }
 
     // =========================
-    // 코스피 100 / 코스닥 100
+    // 코스피100 + 코스닥100
     // =========================
     let kospi = [];
     let kosdaq = [];
@@ -138,24 +137,12 @@ export default async function handler(req, res) {
       kosdaq = [];
     }
 
-    // =========================
-    // 실패 대비 fallback
-    // =========================
+    // fallback
     if (!kospi.length) {
       kospi = [
         {
           code: "005930",
           name: "삼성전자",
-          sector: "코스피 우량주"
-        },
-        {
-          code: "000660",
-          name: "SK하이닉스",
-          sector: "코스피 우량주"
-        },
-        {
-          code: "005380",
-          name: "현대차",
           sector: "코스피 우량주"
         }
       ];
@@ -167,34 +154,29 @@ export default async function handler(req, res) {
           code: "196170",
           name: "알테오젠",
           sector: "코스닥 우량주"
-        },
-        {
-          code: "086520",
-          name: "에코프로",
-          sector: "코스닥 우량주"
         }
       ];
     }
 
-    // =========================
-    // 우량주 200개
-    // =========================
     const universe = [
       ...kospi,
       ...kosdaq
     ];
 
-    const scanList = universe.slice(0, 200);
+    const scanList =
+      universe.slice(0, 200);
 
     const stocks = [];
     const sectorMap = {};
 
     // =========================
-    // 스캔
+    // 스캔 시작
     // =========================
     for (const item of scanList) {
       try {
-        const output = await getPrice(item.code);
+
+        const output =
+          await getPrice(item.code);
 
         if (!output) continue;
 
@@ -217,20 +199,35 @@ export default async function handler(req, res) {
           Number(output.stck_lwpr || 0);
 
         // =========================
-        // 눌림 반등형 점수
+        // 위험 종목 제거
         // =========================
-        let score = 40;
 
-        // -------------------------
-        // 급등 추격 감점
-        // -------------------------
-        if (changeRate >= 7) score -= 25;
-        else if (changeRate >= 5) score -= 15;
-        else if (changeRate >= 3) score -= 5;
+        // 급등 후 꺾임 제거
+        if (changeRate >= 5) continue;
 
-        // -------------------------
-        // 안정적 반등 구간
-        // -------------------------
+        // 장대음봉 제거
+        if (changeRate <= -3) continue;
+
+        // 고점 대비 너무 밀림 제거
+        const highPullback =
+          high > 0
+            ? ((high - currentPrice) / high) * 100
+            : 0;
+
+        if (highPullback >= 3) continue;
+
+        // 시가 회복 실패 제거
+        if (currentPrice < open) continue;
+
+        // 거래량 너무 적은 종목 제거
+        if (volume < 150000) continue;
+
+        // =========================
+        // 점수 계산
+        // =========================
+        let score = 50;
+
+        // 안정적인 눌림 구간
         if (
           changeRate >= -1 &&
           changeRate <= 3
@@ -238,28 +235,21 @@ export default async function handler(req, res) {
           score += 20;
         }
 
-        // -------------------------
         // 장중 저점 회복
-        // -------------------------
-        if (low > 0) {
-          const rebound =
-            ((currentPrice - low) / low) *
-            100;
+        const rebound =
+          low > 0
+            ? ((currentPrice - low) / low) * 100
+            : 0;
 
-          if (rebound >= 1.5) score += 10;
-          if (rebound >= 3) score += 10;
-        }
+        if (rebound >= 1.5) score += 10;
+        if (rebound >= 3) score += 10;
 
-        // -------------------------
         // 시가 회복
-        // -------------------------
         if (currentPrice > open) {
           score += 15;
         }
 
-        // -------------------------
         // 거래량 살아나는 느낌
-        // -------------------------
         if (
           volume >= 300000 &&
           volume <= 3000000
@@ -267,57 +257,42 @@ export default async function handler(req, res) {
           score += 15;
         }
 
-        // -------------------------
-        // 고가 추격 방지
-        // -------------------------
-        if (high > 0) {
-          const nearHigh =
-            (currentPrice / high) * 100;
+        // 고점 추격 아님
+        const nearHigh =
+          high > 0
+            ? (currentPrice / high) * 100
+            : 0;
 
-          // 고가 너무 붙으면 감점
-          if (nearHigh >= 99) {
-            score -= 10;
-          }
-
-          // 적당히 아래면 좋음
-          if (
-            nearHigh >= 94 &&
-            nearHigh <= 98
-          ) {
-            score += 10;
-          }
+        if (
+          nearHigh >= 94 &&
+          nearHigh <= 98
+        ) {
+          score += 10;
         }
 
-        // -------------------------
         // 저점 유지
-        // -------------------------
-        if (low > 0) {
-          const keepLow =
-            (currentPrice / low) * 100;
+        const keepLow =
+          low > 0
+            ? (currentPrice / low) * 100
+            : 0;
 
-          if (keepLow >= 102) {
-            score += 10;
-          }
+        if (keepLow >= 102) {
+          score += 10;
         }
 
-        score = Math.max(
-          0,
-          Math.min(score, 100)
-        );
+        score = Math.min(score, 100);
 
         // =========================
         // 상태
         // =========================
-        let status = "관찰";
+        let status = "관심";
 
-        if (score >= 85) {
-          status = "눌림 후 강반등";
-        } else if (score >= 75) {
-          status = "반등 시도";
-        } else if (score >= 65) {
+        if (score >= 90) {
+          status = "강한 눌림반등";
+        } else if (score >= 80) {
+          status = "눌림 후 반등";
+        } else if (score >= 70) {
           status = "바닥 다지기";
-        } else if (score >= 50) {
-          status = "관심";
         }
 
         // =========================
@@ -350,63 +325,59 @@ export default async function handler(req, res) {
           );
 
         // =========================
-        // 조건 통과 종목만
+        // 최종 저장
         // =========================
-        if (score >= 60) {
-          stocks.push({
-            name: item.name,
-            code: item.code,
-            sector: item.sector,
+        stocks.push({
+          name: item.name,
+          code: item.code,
+          sector: item.sector,
 
-            price:
-              currentPrice.toLocaleString(),
+          price:
+            currentPrice.toLocaleString(),
 
-            change:
-              `${changeRate > 0 ? "+" : ""}` +
-              `${changeRate.toFixed(2)}%`,
+          change:
+            `${changeRate > 0 ? "+" : ""}` +
+            `${changeRate.toFixed(2)}%`,
 
-            status,
+          status,
 
-            sectorRank:
-              "우량주 눌림반등",
+          sectorRank:
+            "우량주 눌림반등",
 
-            programBuy:
-              "수급 분석 강화 예정",
+          score,
 
-            bigTrade:
-              volume >= 1000000
-                ? "거래량 증가 포착"
-                : "거래량 회복 관찰",
+          programBuy:
+            "수급 유입 감시",
 
-            bigTradeAmount:
-              "체결 분석 강화 예정",
+          bigTrade:
+            volume >= 1000000
+              ? "거래량 회복 포착"
+              : "거래량 증가 관찰",
 
-            supply:
-              "기관·외국인 수급 추가 예정",
+          bigTradeAmount:
+            "체결 분석 예정",
 
-            volume:
-              `누적거래량 ${volume.toLocaleString()}주`,
+          supply:
+            "기관·외국인 수급 예정",
 
-            chart:
-              "저점 다지며 반등 시도",
+          volume:
+            `누적거래량 ${volume.toLocaleString()}주`,
 
-            score,
+          chart:
+            "저점 다지며 회복 시도",
 
-            reason:
-              score >= 80
-                ? "급등 추격이 아닌 눌림 구간에서 거래량과 반등 흐름이 살아나는 종목입니다."
-                : "우량주 구간에서 바닥을 다지며 반등 가능성을 관찰하는 종목입니다.",
+          reason:
+            "고점 추격 종목이 아닌, 저점 부근에서 거래량이 살아나며 반등을 시도하는 우량주입니다.",
 
-            buy:
-              "눌림 분할 접근",
+          buy:
+            "눌림 분할 접근",
 
-            stop:
-              "당일 저점 이탈",
+          stop:
+            "당일 저점 이탈",
 
-            target:
-              "전고점 / +5~8%"
-          });
-        }
+          target:
+            "전고점 / +5~8%"
+        });
 
       } catch (e) {
         console.log(
@@ -429,14 +400,16 @@ export default async function handler(req, res) {
     const sectors =
       Object.values(sectorMap)
         .map((s) => {
-          const leaders = s.leaders
-            .sort(
-              (a, b) =>
-                b.score - a.score
-            )
-            .slice(0, 3)
-            .map((x) => x.name)
-            .join(", ");
+
+          const leaders =
+            s.leaders
+              .sort(
+                (a, b) =>
+                  b.score - a.score
+              )
+              .slice(0, 3)
+              .map((x) => x.name)
+              .join(", ");
 
           return {
             name: s.name,
@@ -454,6 +427,7 @@ export default async function handler(req, res) {
 
             leaders
           };
+
         })
         .sort(
           (a, b) =>
@@ -485,6 +459,7 @@ export default async function handler(req, res) {
         stocks.slice(0, 30),
 
       sectors
+
     });
 
   } catch (error) {

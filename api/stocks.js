@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
     const ACCESS_TOKEN = tokenData.access_token;
 
-    const commonHeaders = {
+    const headers = {
       authorization: `Bearer ${ACCESS_TOKEN}`,
       appkey: process.env.KIS_APP_KEY,
       appsecret: process.env.KIS_APP_SECRET,
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
       const response = await fetch(url.toString(), {
         method: "GET",
         headers: {
-          ...commonHeaders,
+          ...headers,
           tr_id: trId
         }
       });
@@ -69,16 +69,9 @@ export default async function handler(req, res) {
 
       return list
         .map((x) => ({
-          code:
-            x.mksc_shrn_iscd ||
-            x.stck_shrn_iscd ||
-            x.iscd ||
-            x.code,
-          name:
-            x.hts_kor_isnm ||
-            x.prdt_name ||
-            x.name ||
-            "",
+          code: x.mksc_shrn_iscd || x.stck_shrn_iscd || x.iscd || x.code,
+          name: x.hts_kor_isnm || x.prdt_name || x.name || "",
+          market: marketCode === "1001" ? "KOSDAQ" : "KOSPI",
           sector: marketCode === "1001" ? "코스닥 상위권" : "코스피 상위권"
         }))
         .filter((x) => x.code && x.name)
@@ -121,6 +114,31 @@ export default async function handler(req, res) {
       return data.output2 || [];
     }
 
+    function average(arr) {
+      if (!arr.length) return 0;
+      return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
+    function getKoreaSession() {
+      const parts = new Intl.DateTimeFormat("ko-KR", {
+        timeZone: "Asia/Seoul",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(new Date());
+
+      const hour = Number(parts.find((p) => p.type === "hour")?.value || 0);
+      const minute = Number(parts.find((p) => p.type === "minute")?.value || 0);
+      const nowMin = hour * 60 + minute;
+
+      if (nowMin >= 480 && nowMin <= 530) return "NXT 프리마켓 확인 구간";
+      if (nowMin >= 540 && nowMin <= 920) return "정규장 판단 구간";
+      if (nowMin >= 940 && nowMin <= 1200) return "NXT 애프터마켓 확인 구간";
+      return "장외/휴장 판단 구간";
+    }
+
+    const sessionLabel = getKoreaSession();
+
     let kospi = [];
     let kosdaq = [];
 
@@ -138,31 +156,42 @@ export default async function handler(req, res) {
 
     if (!kospi.length) {
       kospi = [
-        { code: "005930", name: "삼성전자", sector: "코스피 상위권" },
-        { code: "000660", name: "SK하이닉스", sector: "코스피 상위권" },
-        { code: "005380", name: "현대차", sector: "코스피 상위권" },
-        { code: "000270", name: "기아", sector: "코스피 상위권" },
-        { code: "064350", name: "현대로템", sector: "코스피 상위권" },
-        { code: "204320", name: "HL만도", sector: "코스피 상위권" }
+        { code: "005930", name: "삼성전자", market: "KOSPI", sector: "코스피 상위권" },
+        { code: "000660", name: "SK하이닉스", market: "KOSPI", sector: "코스피 상위권" },
+        { code: "005380", name: "현대차", market: "KOSPI", sector: "코스피 상위권" },
+        { code: "000270", name: "기아", market: "KOSPI", sector: "코스피 상위권" },
+        { code: "064350", name: "현대로템", market: "KOSPI", sector: "코스피 상위권" },
+        { code: "204320", name: "HL만도", market: "KOSPI", sector: "코스피 상위권" },
+        { code: "006280", name: "녹십자", market: "KOSPI", sector: "코스피 상위권" }
       ];
     }
 
     if (!kosdaq.length) {
       kosdaq = [
-        { code: "196170", name: "알테오젠", sector: "코스닥 상위권" },
-        { code: "086520", name: "에코프로", sector: "코스닥 상위권" },
-        { code: "247540", name: "에코프로비엠", sector: "코스닥 상위권" },
-        { code: "277810", name: "레인보우로보틱스", sector: "코스닥 상위권" }
+        { code: "196170", name: "알테오젠", market: "KOSDAQ", sector: "코스닥 상위권" },
+        { code: "086520", name: "에코프로", market: "KOSDAQ", sector: "코스닥 상위권" },
+        { code: "247540", name: "에코프로비엠", market: "KOSDAQ", sector: "코스닥 상위권" },
+        { code: "277810", name: "레인보우로보틱스", market: "KOSDAQ", sector: "코스닥 상위권" },
+        { code: "042700", name: "한미반도체", market: "KOSDAQ", sector: "코스닥 상위권" }
       ];
     }
 
     const universe = [...kospi, ...kosdaq];
 
     const stocks = [];
-    const sectorMap = {};
+    const stats = {
+      scanned: 0,
+      passed: 0,
+      excludedSurge: 0,
+      excludedBreakdown: 0,
+      excludedVolume: 0,
+      scoreMiss: 0
+    };
 
     for (const item of universe) {
       try {
+        stats.scanned += 1;
+
         const price = await getPrice(item.code);
         if (!price) continue;
 
@@ -184,210 +213,265 @@ export default async function handler(req, res) {
             volume: Number(d.acml_vol || 0)
           }))
           .filter((d) => d.close > 0)
-          .slice(0, 30);
+          .slice(0, 60);
 
-        if (daily.length < 20) continue;
+        if (daily.length < 40) continue;
 
+        const recent3 = daily.slice(0, 3);
         const recent5 = daily.slice(0, 5);
         const recent20 = daily.slice(0, 20);
+        const recent40 = daily.slice(0, 40);
         const prev15 = daily.slice(5, 20);
 
-        const avgClose5 =
-          recent5.reduce((sum, d) => sum + d.close, 0) / recent5.length;
+        const ma5 = average(recent5.map((d) => d.close));
+        const ma20 = average(recent20.map((d) => d.close));
+        const ma20Prev5 = average(daily.slice(5, 25).map((d) => d.close));
+        const avgVol5 = average(recent5.map((d) => d.volume));
+        const avgVol20 = average(recent20.map((d) => d.volume));
+        const avgVolPrev15 = average(prev15.map((d) => d.volume));
 
-        const avgClose20 =
-          recent20.reduce((sum, d) => sum + d.close, 0) / recent20.length;
+        const low20 = Math.min(...recent20.map((d) => d.low));
+        const low60 = Math.min(...daily.slice(0, 60).map((d) => d.low));
+        const high40 = Math.max(...recent40.map((d) => d.high));
+        const low40 = Math.min(...recent40.map((d) => d.low));
 
-        const avgVol5 =
-          recent5.reduce((sum, d) => sum + d.volume, 0) / recent5.length;
+        const distLow20 = low20 > 0 ? ((currentPrice - low20) / low20) * 100 : 999;
+        const distLow60 = low60 > 0 ? ((currentPrice - low60) / low60) * 100 : 999;
+        const range40 = low40 > 0 ? ((high40 - low40) / low40) * 100 : 999;
+        const boxLower =
+          high40 > low40 ? ((currentPrice - low40) / (high40 - low40)) : 1;
 
-        const avgVolPrev15 =
-          prev15.reduce((sum, d) => sum + d.volume, 0) / prev15.length;
+        const volRel5_20 = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
+        const volRelToday20 = avgVol20 > 0 ? todayVolume / avgVol20 : 1;
+        const volRecovery = avgVolPrev15 > 0 ? avgVol5 / avgVolPrev15 : 1;
 
-        const recentLow20 = Math.min(...recent20.map((d) => d.low));
-        const recentHigh20 = Math.max(...recent20.map((d) => d.high));
+        const volBuild3 =
+          recent3.length === 3 &&
+          recent3[0].volume >= recent3[1].volume &&
+          recent3[1].volume >= recent3[2].volume;
 
-        const nearLow20 =
-          recentLow20 > 0
-            ? ((currentPrice - recentLow20) / recentLow20) * 100
-            : 999;
+        const ma20Slope =
+          ma20Prev5 > 0 ? ((ma20 - ma20Prev5) / ma20Prev5) * 100 : 0;
 
-        const belowHigh20 =
-          recentHigh20 > 0
-            ? ((recentHigh20 - currentPrice) / recentHigh20) * 100
+        const intradayRebound = low > 0 ? ((currentPrice - low) / low) * 100 : 0;
+        const highPullback = high > 0 ? ((high - currentPrice) / high) * 100 : 0;
+
+        const threeDayChange =
+          daily[2]?.close > 0
+            ? ((currentPrice - daily[2].close) / daily[2].close) * 100
             : 0;
 
-        const intradayRebound =
-          low > 0 ? ((currentPrice - low) / low) * 100 : 0;
+        const upperTail =
+          high > low ? (high - currentPrice) / (high - low) : 0;
 
-        const highPullback =
-          high > 0 ? ((high - currentPrice) / high) * 100 : 0;
+        const bodyRate =
+          daily[1]?.close > 0
+            ? (Math.abs(currentPrice - open) / daily[1].close) * 100
+            : 0;
 
-        const volumeRecovery =
-          avgVolPrev15 > 0 ? avgVol5 / avgVolPrev15 : 1;
+        // =========================
+        // 강한 제외 조건
+        // =========================
+        if (changeRate >= 8 || threeDayChange >= 15) {
+          stats.excludedSurge += 1;
+          continue;
+        }
 
-        const todayVolumePower =
-          avgVol5 > 0 ? todayVolume / avgVol5 : 1;
+        if (changeRate <= -5 || currentPrice < low20 * 0.96) {
+          stats.excludedBreakdown += 1;
+          continue;
+        }
 
-        const above5 = currentPrice >= avgClose5;
-        const near20 =
-          currentPrice >= avgClose20 * 0.94 &&
-          currentPrice <= avgClose20 * 1.08;
+        if (todayVolume < 20000) {
+          stats.excludedVolume += 1;
+          continue;
+        }
 
-        /*
-          과감한 제외 조건
-          - 급등주 제외
-          - 장대음봉·고점 붕괴 제외
-          - 20일 저점 이탈 종목 제외
-          - 거래량 완전히 죽은 종목 제외
-        */
-        if (changeRate >= 5) continue;
-        if (changeRate <= -4) continue;
-        if (highPullback >= 8) continue;
-        if (currentPrice < recentLow20 * 0.98) continue;
-        if (todayVolume < 30000) continue;
-
+        // =========================
+        // 점수 계산
+        // =========================
         let score = 0;
+        const reasons = [];
 
-        // 1. 바닥권 위치
-        if (nearLow20 >= 2 && nearLow20 <= 15) score += 25;
-        else if (nearLow20 > 15 && nearLow20 <= 25) score += 10;
+        // 1. 바닥 위치
+        if (distLow20 <= 5 || distLow60 <= 8) {
+          score += 18;
+          reasons.push("저점권");
+        } else if (distLow20 <= 12) {
+          score += 9;
+          reasons.push("저점 근처");
+        }
 
-        // 2. 전고점 추격 아님
-        if (belowHigh20 >= 5 && belowHigh20 <= 25) score += 20;
-        if (belowHigh20 < 3) score -= 15;
+        // 2. 박스권/에너지 압축
+        if (range40 <= 25 && boxLower <= 0.35) {
+          score += 14;
+          reasons.push("박스 하단");
+        } else if (range40 <= 35 && boxLower <= 0.5) {
+          score += 7;
+          reasons.push("박스권");
+        }
 
-        // 3. 20일선 근처에서 버팀
-        if (near20) score += 20;
+        // 3. 거래량 지속성
+        if (volBuild3) {
+          score += 12;
+          reasons.push("3일 거래량 증가");
+        }
 
-        // 4. 5일선 회복 시도
-        if (above5) score += 20;
+        if (volRel5_20 >= 0.9 && volRel5_20 <= 1.8) {
+          score += 12;
+          reasons.push("5일 거래량 회복");
+        }
 
-        // 5. 최근 거래량 회복
-        if (volumeRecovery >= 1.05 && volumeRecovery <= 3.5) score += 25;
-        else if (volumeRecovery >= 0.9) score += 10;
+        if (volRecovery >= 1.0 && volRecovery <= 2.2) {
+          score += 10;
+          reasons.push("거래량 축적");
+        }
 
-        // 6. 당일 거래량도 죽지 않음
-        if (todayVolumePower >= 0.8 && todayVolumePower <= 3.5) score += 15;
+        if (volRelToday20 >= 0.8 && volRelToday20 <= 3.0) {
+          score += 8;
+          reasons.push("당일 거래량 유지");
+        }
 
-        // 7. 당일 저점 대비 회복
-        if (intradayRebound >= 1) score += 10;
-        if (intradayRebound >= 2) score += 10;
+        // 4. 추세 회복
+        if (currentPrice >= ma20) {
+          score += 12;
+          reasons.push("20일선 회복");
+        } else if (currentPrice >= ma20 * 0.97) {
+          score += 6;
+          reasons.push("20일선 근접");
+        }
 
-        // 8. 시가 회복
-        if (currentPrice >= open) score += 15;
-        else score -= 10;
+        if (currentPrice >= ma5) {
+          score += 8;
+          reasons.push("5일선 회복");
+        }
 
-        // 9. 하락폭 제한
-        if (changeRate >= -2 && changeRate <= 2.5) score += 15;
+        if (ma20Slope > -0.5) {
+          score += 6;
+          reasons.push("하락 둔화");
+        }
 
-        // 10. 과열 감점
-        if (changeRate > 3) score -= 15;
-        if (todayVolumePower > 5) score -= 10;
+        // 5. 장중 회복
+        if (intradayRebound >= 1.0) {
+          score += 6;
+          reasons.push("장중 저점 회복");
+        }
+
+        if (currentPrice >= open) {
+          score += 6;
+          reasons.push("시가 회복");
+        }
+
+        // 6. 캔들 품질
+        if (upperTail <= 0.45) {
+          score += 5;
+          reasons.push("윗꼬리 부담 낮음");
+        }
+
+        if (bodyRate >= 3 && changeRate > 4) {
+          score -= 8;
+          reasons.push("장대봉 추격 주의");
+        }
+
+        if (highPullback >= 8 && changeRate < 0) {
+          score -= 10;
+          reasons.push("고점 이탈 주의");
+        }
+
+        if (volRelToday20 > 4) {
+          score -= 10;
+          reasons.push("거래량 과열 주의");
+        }
+
+        // 7. NXT 세션 보정
+        if (sessionLabel.includes("NXT")) {
+          score += 3;
+          reasons.push(sessionLabel);
+        }
 
         score = Math.max(0, Math.min(score, 100));
 
-        if (score < 50) continue;
-
-        let status = "관찰 후보";
-        if (score >= 85) status = "바닥권 수급 포착";
-        else if (score >= 75) status = "눌림 후 회복 시도";
-        else if (score >= 65) status = "저점 다지기";
-        else if (score >= 50) status = "분할 관심";
-
-        if (!sectorMap[item.sector]) {
-          sectorMap[item.sector] = {
-            name: item.sector,
-            totalScore: 0,
-            count: 0,
-            leaders: [],
-            bestChange: changeRate
-          };
+        if (score < 50) {
+          stats.scoreMiss += 1;
+          continue;
         }
 
-        sectorMap[item.sector].totalScore += score;
-        sectorMap[item.sector].count += 1;
-        sectorMap[item.sector].leaders.push({
-          name: item.name,
-          score,
-          changeRate
-        });
-        sectorMap[item.sector].bestChange = Math.max(
-          sectorMap[item.sector].bestChange,
-          changeRate
-        );
+        let status = "관찰";
+        let action = "관찰만";
+
+        if (score >= 80) {
+          status = "매수후보";
+          action = "1차 분할 가능";
+        } else if (score >= 65) {
+          status = "분할관심";
+          action = "눌림 확인 후 1차";
+        } else {
+          status = "관찰후보";
+          action = "후보 저장";
+        }
+
+        stats.passed += 1;
 
         stocks.push({
           name: item.name,
           code: item.code,
+          market: item.market,
           sector: item.sector,
           price: currentPrice.toLocaleString(),
           change: `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%`,
-          status,
-          sectorRank: "상위30% 바닥권 수급",
           score,
+          status,
+          action,
 
-          programBuy: "거래량 기반 수급 유입 감시",
+          sectorRank: "바닥·축적·수급 스윙",
+          programBuy: `${sessionLabel} / 수급 확인 필요`,
+
           bigTrade:
-            volumeRecovery >= 1.05
-              ? "최근 5일 거래량 회복"
+            volBuild3 || volRel5_20 >= 1
+              ? "거래량 회복 포착"
               : "거래량 관찰",
-          bigTradeAmount: `5일 거래량 / 이전평균 ${volumeRecovery.toFixed(
-            1
-          )}배`,
+
+          bigTradeAmount: `5일/20일 거래량 ${volRel5_20.toFixed(
+            2
+          )}배, 오늘/20일 ${volRelToday20.toFixed(2)}배`,
 
           supply:
-            todayVolumePower >= 1
-              ? "당일 거래량도 유지"
-              : "당일 거래량 확인 필요",
+            "외국인·기관·프로그램 상세 수급은 추가 API 연결 대상",
 
-          volume: `오늘 ${todayVolume.toLocaleString()}주 / 5일평균 ${todayVolumePower.toFixed(
+          volume: `오늘 ${todayVolume.toLocaleString()}주`,
+
+          chart: `20일저점 +${distLow20.toFixed(
             1
-          )}배`,
-
-          chart: `20일저점 대비 +${nearLow20.toFixed(
+          )}%, 40일박스 위치 ${(boxLower * 100).toFixed(
+            0
+          )}%, 20일선 대비 ${(((currentPrice - ma20) / ma20) * 100).toFixed(
             1
-          )}%, 20일고점 대비 -${belowHigh20.toFixed(1)}%`,
+          )}%`,
 
-          reason:
-            "최근 20일 저점권에서 무너지지 않고, 5일선 회복과 거래량 회복이 함께 나타나는 분할매수 후보입니다.",
+          reason: reasons.slice(0, 6).join(" · "),
 
-          buy: "1차 소액 / 눌림 시 2차 분할",
-          stop: "20일 저점 또는 당일 저점 이탈",
+          buy: "1차 25% / 눌림 시 2차",
+          stop: "20일 저점 이탈 또는 거래량 동반 음봉",
           target: "전고점 회복 / +5~8%"
         });
-      } catch (e) {}
+      } catch (e) {
+        continue;
+      }
     }
 
     stocks.sort((a, b) => b.score - a.score);
 
-    const sectors = Object.values(sectorMap)
-      .map((s) => {
-        const leaders = s.leaders
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 3)
-          .map((x) => x.name)
-          .join(", ");
-
-        return {
-          name: s.name,
-          change: `${s.bestChange > 0 ? "+" : ""}${s.bestChange.toFixed(2)}%`,
-          strength: Math.min(Math.round(s.totalScore / s.count), 100),
-          leaders
-        };
-      })
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 8);
-
     return res.status(200).json({
       success: true,
-      mode: "상위30% 바닥권 수급 스윙 스캐너",
-      scanned: universe.length,
+      mode: "바닥·축적·수급 스윙 스캐너",
+      session: sessionLabel,
+      scanned: stats.scanned,
+      stats,
       updatedAt: new Date().toLocaleString("ko-KR", {
         timeZone: "Asia/Seoul"
       }),
       stocks: stocks.slice(0, 30),
-      sectors
+      sectors: []
     });
   } catch (error) {
     return res.status(500).json({

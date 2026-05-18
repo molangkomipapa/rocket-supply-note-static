@@ -254,7 +254,7 @@ function render(){
   let arr=stocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.sector||"").includes(q));
   if(active==="프로그램") arr=arr.filter(s=>(s.supply||"").includes("순매수")||(s.supplyContinuity||"").includes("프로그램"));
   if(active==="대량체결") arr=arr.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가"));
-  if(active==="눌림반등") arr=arr.filter(s=>(s.status||"").includes("눌림")||(s.status||"").includes("반등"));
+  if(active==="눌림반등") arr=arr.filter(s=>(s.status||"").includes("눌림")||(s.status||"").includes("반등")||(s.strategyType||"").includes("압축")||(s.strategyType||"").includes("돌파"));
   if(active==="기록") arr=arr.filter(s=>saved[s.code]);
 
   c.innerHTML=arr.length?arr.map(s=>`

@@ -642,6 +642,55 @@ export default async function handler(req, res) {
         reasons: r3
       });
 
+      // 전략 4. 돌파 직전 압축형: 사진의 동그라미처럼 이평선 위/근처에서 짧게 눌리고 다시 고개 드는 자리
+      let s4 = 0;
+      const r4 = [];
+
+      if (m.range10 <= 16) {
+        s4 += 18;
+        r4.push("10일 박스 압축");
+      }
+      if (m.ma5Ma20Gap <= 4) {
+        s4 += 16;
+        r4.push("5일·20일선 수렴");
+      }
+      if (m.price >= m.ma20 * 0.98 && m.price >= m.ma5 * 0.96) {
+        s4 += 16;
+        r4.push("이평선 지지권");
+      }
+      if (m.ma20Slope > -0.3) {
+        s4 += 10;
+        r4.push("20일선 하락 아님");
+      }
+      if (m.recentCloseAboveMa20Days >= 3) {
+        s4 += 12;
+        r4.push("20일선 위 안착 반복");
+      }
+      if (m.volRel5_20 >= 0.55 && m.volRel5_20 <= 1.6) {
+        s4 += 10;
+        r4.push("거래량 과열 전 압축");
+      }
+      if (m.volRelToday20 >= 0.7 && m.volRelToday20 <= 3) {
+        s4 += 8;
+        r4.push("당일 거래량 준비");
+      }
+      if (
+        m.priorBoxHigh > 0 &&
+        m.price >= m.priorBoxHigh * 0.96 &&
+        m.price <= m.priorBoxHigh * 1.08 &&
+        m.changeRate <= 8
+      ) {
+        s4 += 14;
+        r4.push("박스 상단 돌파 시도");
+      }
+
+      results.push({
+        strategyType: "돌파 직전 압축형",
+        strategyCode: "PRE_BREAKOUT_COMPRESSION",
+        score: s4,
+        reasons: r4
+      });
+
       return results.sort((a, b) => b.score - a.score);
     }
 
@@ -858,12 +907,17 @@ export default async function handler(req, res) {
         finalScore >= 72 &&
         m.price >= m.ma20 * 0.97 &&
         m.volRelToday20 <= 2.8 &&
-        (bestStrategyCode === "BOTTOM" || isHealthyTrend(m))
+        (bestStrategyCode === "BOTTOM" ||
+          bestStrategyCode === "PRE_BREAKOUT_COMPRESSION" ||
+          isHealthyTrend(m))
       ) {
         return {
           entryLabel: "진입 유리",
           entryCode: "FAVORABLE",
-          entryGuide: "1차 분할 후 저점 이탈 여부 확인"
+          entryGuide:
+            bestStrategyCode === "PRE_BREAKOUT_COMPRESSION"
+              ? "박스 하단 또는 20일선 이탈 여부 보며 1차 분할"
+              : "1차 분할 후 저점 이탈 여부 확인"
         };
       }
       return {
@@ -1015,6 +1069,11 @@ export default async function handler(req, res) {
         items.push({ label: "20일선 상승", ok: m.ma20Slope > 0 });
         items.push({ label: "고점 대비 건강한 눌림", ok: m.pullbackFromHigh20 >= 4 && m.pullbackFromHigh20 <= 18 });
         items.push({ label: "거래량 과열 아님", ok: m.volRelToday20 <= 2.5 });
+      } else if (strategy.strategyCode === "PRE_BREAKOUT_COMPRESSION") {
+        items.push({ label: "10일 박스 압축", ok: m.range10 <= 16 });
+        items.push({ label: "5일·20일선 수렴", ok: m.ma5Ma20Gap <= 4 });
+        items.push({ label: "이평선 지지권", ok: m.price >= m.ma20 * 0.98 && m.price >= m.ma5 * 0.96 });
+        items.push({ label: "박스 상단 돌파 시도", ok: m.priorBoxHigh > 0 && m.price >= m.priorBoxHigh * 0.96 });
       } else {
         items.push({ label: "최근 강한 양봉 이후 유지", ok: m.afterBigCandleHold });
         items.push({ label: "거래량 진정", ok: m.volCoolingAfterSurge });
@@ -1102,6 +1161,10 @@ export default async function handler(req, res) {
       const avgVol20 = avg(recent20.map((d) => d.volume));
       const low20 = Math.min(...recent20.map((d) => d.low));
       const low60 = Math.min(...recent60.map((d) => d.low));
+      const high5 = Math.max(...recent5.map((d) => d.high));
+      const low5 = Math.min(...recent5.map((d) => d.low));
+      const high10 = Math.max(...recent10.map((d) => d.high));
+      const low10 = Math.min(...recent10.map((d) => d.low));
       const high20 = Math.max(...recent20.map((d) => d.high));
       const high40 = Math.max(...recent40.map((d) => d.high));
       const low40 = Math.min(...recent40.map((d) => d.low));
@@ -1111,10 +1174,14 @@ export default async function handler(req, res) {
         daily[2]?.close > 0 ? ((price - daily[2].close) / daily[2].close) * 100 : 0;
       const distLow20 = low20 > 0 ? ((price - low20) / low20) * 100 : 999;
       const distLow60 = low60 > 0 ? ((price - low60) / low60) * 100 : 999;
+      const range5 = low5 > 0 ? ((high5 - low5) / low5) * 100 : 999;
+      const range10 = low10 > 0 ? ((high10 - low10) / low10) * 100 : 999;
       const range40 = low40 > 0 ? ((high40 - low40) / low40) * 100 : 999;
       const boxLower = high40 > low40 ? (price - low40) / (high40 - low40) : 1;
       const pullbackFromHigh20 =
         high20 > 0 ? ((high20 - price) / high20) * 100 : 0;
+      const ma5Ma20Gap = ma20 > 0 ? (Math.abs(ma5 - ma20) / ma20) * 100 : 999;
+      const ma20Ma60Gap = ma60 > 0 ? (Math.abs(ma20 - ma60) / ma60) * 100 : 999;
       const volRel5_20 = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
       const volRelToday20 = avgVol20 > 0 ? today.volume / avgVol20 : 1;
       const volumeRecoveryDays = recent5.filter(
@@ -1133,6 +1200,12 @@ export default async function handler(req, res) {
       const recentBoxLow = recent10.length > 1
         ? Math.min(...recent10.slice(1).map((d) => d.low))
         : low20;
+      const priorBoxHigh = recent10.length > 1
+        ? Math.max(...recent10.slice(1).map((d) => d.high))
+        : high10;
+      const recentCloseAboveMa20Days = recent5.filter(
+        (d) => d.close >= ma20 * 0.98
+      ).length;
       const bigCandle = recent10.find((d) => {
         const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
         return body >= 5 && d.volume >= avgVol20 * 1.5;
@@ -1154,8 +1227,12 @@ export default async function handler(req, res) {
         ma20Slope,
         distLow20,
         distLow60,
+        range5,
+        range10,
         range40,
         boxLower,
+        ma5Ma20Gap,
+        ma20Ma60Gap,
         volRel5_20,
         volRelToday20,
         volumeRecoveryDays,
@@ -1165,6 +1242,8 @@ export default async function handler(req, res) {
         upperWickRatio,
         recentUpperWickCount,
         recentBoxLow,
+        priorBoxHigh,
+        recentCloseAboveMa20Days,
         hasBigCandle10: !!bigCandle,
         afterBigCandleHold: !!bigCandle && price >= low20 * 1.03,
         volCoolingAfterSurge: !!bigCandle && volRelToday20 <= 2.5,
@@ -1385,16 +1464,24 @@ export default async function handler(req, res) {
 
         const low20 = Math.min(...recent20.map((d) => d.low));
         const low60 = Math.min(...recent60.map((d) => d.low));
+        const high5 = Math.max(...recent5.map((d) => d.high));
+        const low5 = Math.min(...recent5.map((d) => d.low));
+        const high10 = Math.max(...recent10.map((d) => d.high));
+        const low10 = Math.min(...recent10.map((d) => d.low));
         const high20 = Math.max(...recent20.map((d) => d.high));
         const high40 = Math.max(...recent40.map((d) => d.high));
         const low40 = Math.min(...recent40.map((d) => d.low));
 
         const distLow20 = low20 > 0 ? ((price - low20) / low20) * 100 : 999;
         const distLow60 = low60 > 0 ? ((price - low60) / low60) * 100 : 999;
+        const range5 = low5 > 0 ? ((high5 - low5) / low5) * 100 : 999;
+        const range10 = low10 > 0 ? ((high10 - low10) / low10) * 100 : 999;
         const range40 = low40 > 0 ? ((high40 - low40) / low40) * 100 : 999;
         const boxLower = high40 > low40 ? (price - low40) / (high40 - low40) : 1;
         const pullbackFromHigh20 =
           high20 > 0 ? ((high20 - price) / high20) * 100 : 0;
+        const ma5Ma20Gap = ma20 > 0 ? (Math.abs(ma5 - ma20) / ma20) * 100 : 999;
+        const ma20Ma60Gap = ma60 > 0 ? (Math.abs(ma20 - ma60) / ma60) * 100 : 999;
 
         const volRel5_20 = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
         const volRelToday20 = avgVol20 > 0 ? todayVolume / avgVol20 : 1;
@@ -1420,6 +1507,12 @@ export default async function handler(req, res) {
         const recentBoxLow = recent10.length > 1
           ? Math.min(...recent10.slice(1).map((d) => d.low))
           : low20;
+        const priorBoxHigh = recent10.length > 1
+          ? Math.max(...recent10.slice(1).map((d) => d.high))
+          : high10;
+        const recentCloseAboveMa20Days = recent5.filter(
+          (d) => d.close >= ma20 * 0.98
+        ).length;
         const bigCandle = recent10.find((d) => {
           const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
           return body >= 5 && d.volume >= avgVol20 * 1.5;
@@ -1441,8 +1534,12 @@ export default async function handler(req, res) {
           ma20Slope,
           distLow20,
           distLow60,
+          range5,
+          range10,
           range40,
           boxLower,
+          ma5Ma20Gap,
+          ma20Ma60Gap,
           volRel5_20,
           volRelToday20,
           volumeRecoveryDays,
@@ -1452,6 +1549,8 @@ export default async function handler(req, res) {
           upperWickRatio,
           recentUpperWickCount,
           recentBoxLow,
+          priorBoxHigh,
+          recentCloseAboveMa20Days,
           hasBigCandle10,
           afterBigCandleHold,
           volCoolingAfterSurge,
@@ -1653,14 +1752,21 @@ export default async function handler(req, res) {
               ? "1차 25% / 저점 이탈 없을 때 추가"
               : best.strategyCode === "TREND_PULLBACK"
               ? "20일선 눌림 확인 후 분할"
+              : best.strategyCode === "PRE_BREAKOUT_COMPRESSION"
+              ? "박스 상단 돌파 확인 후 1차 분할"
               : "급등 후 거래량 감소·가격 유지 확인 후 분할",
 
           stop:
             best.strategyCode === "TREND_PULLBACK"
               ? "20일선 이탈 + 거래량 증가 음봉"
+              : best.strategyCode === "PRE_BREAKOUT_COMPRESSION"
+              ? "박스 하단 이탈 또는 20일선 이탈"
               : "20일 저점 이탈 또는 수급 악화",
 
-          target: "전고점 회복 / +5~8%"
+          target:
+            best.strategyCode === "PRE_BREAKOUT_COMPRESSION"
+              ? "첫 장대양봉 / +5~10%"
+              : "전고점 회복 / +5~8%"
         };
       } catch (e) {
         return null;

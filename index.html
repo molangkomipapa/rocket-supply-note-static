@@ -11,6 +11,7 @@ body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSy
 .sub{color:#94a3b8;font-size:14px}.title{font-size:28px;font-weight:800}
 .icon{width:48px;height:48px;border-radius:18px;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:25px}
 .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin:16px 0;text-align:center}
+.market{background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin-bottom:14px}.marketTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.marketStatus{font-size:20px;font-weight:800}.marketTone{font-size:12px;padding:6px 9px;border-radius:999px;white-space:nowrap}.toneENTRY{background:rgba(16,185,129,.16);color:#6ee7b7}.toneWATCH{background:rgba(234,179,8,.16);color:#fde68a}.toneRISK{background:rgba(239,68,68,.16);color:#fca5a5}.toneCHASE{background:rgba(249,115,22,.16);color:#fdba74}.marketLine{margin-top:10px;color:#cbd5e1;font-size:14px;line-height:1.55}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}.metric{background:#1e293b;border-radius:14px;padding:9px;text-align:center}.metric b{display:block;font-size:15px}.metric span{display:block;margin-top:3px;font-size:11px;color:#94a3b8}
 .num{font-size:22px;font-weight:800}.label{font-size:12px;color:#94a3b8}
 .search{display:flex;gap:8px;margin-bottom:14px}
 input{flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:18px;color:#fff;padding:13px}
@@ -22,6 +23,7 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
 .badges,.signals{display:flex;gap:8px;overflow-x:auto;margin:12px 0}
 .badge,.signal{font-size:12px;padding:7px 10px;border-radius:999px;white-space:nowrap}
 .blue{background:rgba(59,130,246,.16);color:#93c5fd}.green{background:rgba(16,185,129,.16);color:#6ee7b7}.orange{background:rgba(249,115,22,.16);color:#fdba74}
+.red{background:rgba(239,68,68,.16);color:#fca5a5}.yellow{background:rgba(234,179,8,.16);color:#fde68a}
 .signal{background:#1e293b;color:#e2e8f0}
 .bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin:8px 0 14px}.fill{height:100%;background:#fff}
 .info{font-size:14px;color:#cbd5e1;line-height:1.8}.reason{background:#020617;border-radius:18px;padding:12px;margin:12px 0}.reason p{margin:5px 0 0;color:#cbd5e1;font-size:14px;line-height:1.55}
@@ -43,10 +45,12 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
   </div>
 
   <div class="summary">
-    <div><div class="num" id="topCount">-</div><div class="label">강관심 이상</div></div>
-    <div><div class="num" id="bigTradeCount">-</div><div class="label">대량체결</div></div>
-    <div><div class="num" id="sectorCount">-</div><div class="label">주도섹터</div></div>
+    <div><div class="num" id="topCount">-</div><div class="label">진입 관심</div></div>
+    <div><div class="num" id="bigTradeCount">-</div><div class="label">거래량 증가</div></div>
+    <div><div class="num" id="sectorCount">-</div><div class="label">위험/추격</div></div>
   </div>
+
+  <div id="marketBoard" class="market"></div>
 
   <div class="search">
     <input id="q" placeholder="종목명, 코드, 섹터 검색" />
@@ -65,10 +69,11 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
 </div>
 
 <script>
-const tabs=["포착","섹터","프로그램","대량체결","눌림반등","기록"];
-let active="포착", stocks=[], sectors=[], saved=JSON.parse(localStorage.getItem("saved")||"{}");
+const tabs=["포착","시그널","섹터","프로그램","대량체결","눌림반등","기록"];
+let active="포착", stocks=[], sectors=[], signalStocks=[], marketBoard=null, scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
 
 function grade(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
+function signalClass(code){return code==="RISK"?"red":code==="CHASE"?"orange":code==="ENTRY"?"green":"yellow"}
 function setTab(t){active=t;render()}
 document.getElementById("q").addEventListener("input",render);
 
@@ -82,16 +87,42 @@ async function loadData(){
 
     stocks=data.stocks||[];
     sectors=data.sectors||[];
+    signalStocks=data.signalStocks||[];
+    marketBoard=data.marketBoard||null;
+    scanScope=data.scanScope||null;
 
     document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt:"업데이트 완료";
-    document.getElementById("topCount").textContent=stocks.filter(s=>s.score>=75).length;
-    document.getElementById("bigTradeCount").textContent=stocks.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가")).length;
-    document.getElementById("sectorCount").textContent=sectors.length;
+    document.getElementById("topCount").textContent=stocks.filter(s=>s.signalCode==="ENTRY").length;
+    document.getElementById("bigTradeCount").textContent=marketBoard?marketBoard.volumeIncreasing:stocks.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가")).length;
+    document.getElementById("sectorCount").textContent=marketBoard?marketBoard.riskCount+marketBoard.chaseCount:signalStocks.length;
     render();
   }catch(e){
     c.innerHTML='<div class="notice">데이터를 불러오지 못했습니다.<br><br><span class="muted">'+e.message+'</span></div>';
     document.getElementById("updated").textContent="데이터 연결 필요";
   }
+}
+
+function renderMarketBoard(){
+  const el=document.getElementById("marketBoard");
+  if(!marketBoard){
+    el.innerHTML='<div class="muted">시장 상태판을 준비하는 중입니다.</div>';
+    return;
+  }
+  el.innerHTML=`
+    <div class="marketTop">
+      <div>
+        <div class="muted">오늘 시장 상태${scanScope?` · 코스피/코스닥 상위 ${scanScope.topPercent}% · ${scanScope.marketDataName||"KRX+NXT 통합"}`:''}</div>
+        <div class="marketStatus">${marketBoard.status}</div>
+      </div>
+      <span class="marketTone tone${marketBoard.tone}">${marketBoard.action}</span>
+    </div>
+    <div class="marketLine">주의: ${marketBoard.caution}<br>포착: ${marketBoard.capture}</div>
+    <div class="metrics">
+      <div class="metric"><b>${marketBoard.risingRate}%</b><span>상승 비율</span></div>
+      <div class="metric"><b>${marketBoard.ma20Rate}%</b><span>20일선 위</span></div>
+      <div class="metric"><b>${marketBoard.recoveredMa20}</b><span>20일선 회복</span></div>
+      <div class="metric"><b>${scanScope?scanScope.totalActualCount:marketBoard.validCharts}</b><span>스캔 범위</span></div>
+    </div>`;
 }
 
 function renderTabs(){
@@ -100,6 +131,7 @@ function renderTabs(){
 
 function render(){
   renderTabs();
+  renderMarketBoard();
   const q=document.getElementById("q").value.trim();
   const c=document.getElementById("content");
 
@@ -110,6 +142,20 @@ function render(){
         <div class="muted">섹터 강도 ${s.strength}점</div>
         <div class="bar"><div class="fill" style="width:${s.strength}%"></div></div>
       </div>`).join(""):'<div class="notice">섹터 데이터가 없습니다.</div>';
+    return;
+  }
+
+  if(active==="시그널"){
+    const arr=signalStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q));
+    c.innerHTML=arr.length?arr.map(s=>`
+      <div class="card">
+        <div class="row">
+          <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
+          <span class="badge ${signalClass(s.signalCode)}">${s.signalType}</span>
+        </div>
+        <div class="reason"><span class="muted">시그널 판단</span><p>${s.reason}</p></div>
+        <div class="info">✅ ${s.chart}</div>
+      </div>`).join(""):'<div class="notice">위험 또는 추격주의 시그널이 없습니다.</div>';
     return;
   }
 
@@ -125,10 +171,10 @@ function render(){
         <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.sector}</div></div>
         <button onclick="toggle('${s.code}')">${saved[s.code]?'★':'☆'}</button>
       </div>
-      <div class="badges"><span class="badge blue">${s.status}</span><span class="badge green">${grade(s.score)}</span><span class="badge orange">${s.sectorRank}</span></div>
+      <div class="badges"><span class="badge blue">${s.status}</span><span class="badge ${signalClass(s.signalCode)}">${s.signalType||"관찰"}</span><span class="badge green">${grade(s.score)}</span><span class="badge orange">${s.sectorRank}</span></div>
       <div class="row muted"><span>수급포착 점수</span><span>${s.score}점</span></div>
       <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
-      <div class="signals"><span class="signal">${s.programBuy}</span><span class="signal">${s.bigTrade}</span><span class="signal">${s.sectorRank}</span></div>
+      <div class="signals"><span class="signal">${s.programBuy}</span><span class="signal">${s.bigTrade}</span><span class="signal">${s.signalSummary||s.sectorRank}</span></div>
       <div class="info">💰 ${s.supply}<br>📊 ${s.volume}<br>✅ ${s.chart}<br>🔥 대량체결 금액 ${s.bigTradeAmount}</div>
       <div class="reason"><span class="muted">포착 판단</span><p>${s.reason}</p></div>
       <div class="grid"><div class="box"><b>매수 후보</b><span>${s.buy}</span></div><div class="box"><b>손절 기준</b><span>${s.stop}</span></div><div class="box"><b>목표 구간</b><span>${s.target}</span></div></div>

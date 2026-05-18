@@ -72,14 +72,20 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
 
 <script>
 const tabs=["포착","시그널","놓친종목","섹터","프로그램","대량체결","눌림반등","기록"];
-let active="포착", stocks=[], sectors=[], signalStocks=[], missedStocks=[], marketBoard=null, scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
+let active="포착", stocks=[], sectors=[], signalStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
 
 function grade(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
 function signalClass(code){return code==="RISK"?"red":code==="CHASE"?"orange":code==="ENTRY"?"green":"yellow"}
 function entryClass(code){return code==="FAVORABLE"?"green":code==="CHASE"?"orange":code==="AVOID"?"red":"yellow"}
 function renderChecklist(items){return (items||[]).map(i=>`<div class="check ${i.ok?'ok':'no'}"><span class="mark">${i.ok?'✓':'·'}</span><span>${i.label}</span></div>`).join("")}
+function renderAvoidance(items){return (items||[]).length?`<div class="reason"><span class="muted">매도·회피 위험 시그널</span><div class="checklist">${items.map(i=>`<div class="check ${i.severity==="WATCH"?"no":"ok"}"><span class="mark">${i.severity==="RISK"?"!":i.severity==="CHASE"?"!":"·"}</span><span>${i.label} · ${i.detail}</span></div>`).join("")}</div></div>`:""}
 function setTab(t){active=t;render()}
 document.getElementById("q").addEventListener("input",render);
+
+function parseAnalyzeInput(text){
+  const digits=(text||"").match(/\d{6,8}/g)||[];
+  return {code:(digits.find(x=>x.length===6)||"").slice(0,6), date:(digits.find(x=>x.length===8)||"").slice(0,8)}
+}
 
 async function loadData(){
   const c=document.getElementById("content");
@@ -96,7 +102,8 @@ async function loadData(){
     marketBoard=data.marketBoard||null;
     scanScope=data.scanScope||null;
 
-    document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt:"업데이트 완료";
+    const cacheText=data.cache?.status==="fresh"?` · 캐시 ${data.cache.ageSeconds}초`:data.cache?.status==="stale"?` · 임시 ${data.cache.ageSeconds}초 전`:"";
+    document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt+cacheText:"업데이트 완료";
     document.getElementById("topCount").textContent=stocks.filter(s=>s.signalCode==="ENTRY").length;
     document.getElementById("bigTradeCount").textContent=marketBoard?marketBoard.volumeIncreasing:stocks.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가")).length;
     document.getElementById("sectorCount").textContent=marketBoard?marketBoard.riskCount+marketBoard.chaseCount:signalStocks.length;
@@ -166,19 +173,38 @@ function render(){
 
   if(active==="놓친종목"){
     const arr=missedStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q));
-    c.innerHTML=arr.length?arr.map(s=>`
+    const parsed=parseAnalyzeInput(q);
+    const manual=manualMissedAnalysis?`
+      <div class="card">
+        <div class="row">
+          <div><div><span class="name">${manualMissedAnalysis.name}</span> <span class="code">${manualMissedAnalysis.code}</span></div><div class="muted">${manualMissedAnalysis.date} · ${manualMissedAnalysis.market}</div></div>
+          <span class="badge ${entryClass(manualMissedAnalysis.entryLabel==="진입 유리"?"FAVORABLE":"WATCH")}">${manualMissedAnalysis.verdict}</span>
+        </div>
+        <div class="badges"><span class="badge blue">${manualMissedAnalysis.strategyType||"전략 확인"}</span><span class="badge ${signalClass(manualMissedAnalysis.signalType==="추격주의"?"CHASE":manualMissedAnalysis.signalType==="위험"?"RISK":"ENTRY")}">${manualMissedAnalysis.signalType||"관찰"}</span><span class="badge green">${manualMissedAnalysis.entryLabel||"관찰만"}</span></div>
+        <div class="position"><div class="positionTop"><span>${manualMissedAnalysis.positionLabel||"위치 확인"}</span><span>${manualMissedAnalysis.positionPercent||0}%</span></div><div class="positionBar"><div class="positionFill" style="width:${manualMissedAnalysis.positionPercent||0}%"></div></div></div>
+        <div class="reason"><span class="muted">분석 결과</span><p>${manualMissedAnalysis.detail}</p><div class="checklist">${renderChecklist(manualMissedAnalysis.checks)}</div></div>
+        ${renderAvoidance(manualMissedAnalysis.avoidanceSignals)}
+        <div class="info">💰 ${manualMissedAnalysis.programFlow?.label||"프로그램 확인 대기"} · ${manualMissedAnalysis.programFlow?.detail||"데이터 없음"}</div>
+      </div>`:"";
+    c.innerHTML=`
+      <div class="notice">
+        종목코드 6자리${parsed.date?"와 날짜":""}로 즉시 분석할 수 있습니다.
+        <br><br><button onclick="analyzeMissed()">${parsed.code?parsed.code:"종목"} 분석</button>
+      </div>
+      ${manual}
+      ${arr.length?arr.map(s=>`
       <div class="card">
         <div class="row">
           <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.market}</div></div>
           <span class="badge yellow">${s.reason}</span>
         </div>
         <div class="reason"><span class="muted">왜 안 잡혔나</span><p>${s.detail}</p></div>
-      </div>`).join(""):'<div class="notice">탈락 분석 샘플이 없습니다.</div>';
+      </div>`).join(""):'<div class="notice">탈락 분석 샘플이 없습니다.</div>'}`;
     return;
   }
 
   let arr=stocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.sector||"").includes(q));
-  if(active==="프로그램") arr=arr.filter(s=>(s.programBuy||"").includes("순매수"));
+  if(active==="프로그램") arr=arr.filter(s=>(s.supply||"").includes("순매수")||(s.supplyContinuity||"").includes("프로그램"));
   if(active==="대량체결") arr=arr.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가"));
   if(active==="눌림반등") arr=arr.filter(s=>(s.status||"").includes("눌림")||(s.status||"").includes("반등"));
   if(active==="기록") arr=arr.filter(s=>saved[s.code]);
@@ -196,9 +222,29 @@ function render(){
       <div class="position"><div class="positionTop"><span>${s.positionLabel||"위치 확인"}</span><span>${s.positionBar||""} ${s.positionPercent||0}%</span></div><div class="positionBar"><div class="positionFill" style="width:${s.positionPercent||0}%"></div></div></div>
       <div class="info">💰 ${s.supplyContinuity||"수급 관찰"} · ${s.supplyContinuityDetail||s.supply}<br>📊 ${s.volume}<br>✅ ${s.chart}<br>🔥 대량체결 금액 ${s.bigTradeAmount}</div>
       <div class="reason"><span class="muted">${s.strategyType}</span><div class="checklist">${renderChecklist(s.reasonChecklist)}</div><p>${s.reason}</p></div>
+      ${renderAvoidance(s.avoidanceSignals)}
       <div class="grid"><div class="box"><b>매수 후보</b><span>${s.buy}</span></div><div class="box"><b>손절 기준</b><span>${s.stop}</span></div><div class="box"><b>목표 구간</b><span>${s.target}</span></div></div>
       <div class="reason"><span class="muted">진입 판단</span><p>${s.entryGuide||s.action}</p></div>
     </div>`).join(""):'<div class="notice">조건에 맞는 종목이 없습니다.</div>';
+}
+
+async function analyzeMissed(){
+  const c=document.getElementById("content");
+  const parsed=parseAnalyzeInput(document.getElementById("q").value.trim());
+  if(!parsed.code){
+    c.innerHTML='<div class="notice">검색창에 종목코드 6자리를 입력해 주세요.</div>';
+    return;
+  }
+  c.innerHTML='<div class="notice">해당 종목의 탈락 조건을 분석하는 중입니다.</div>';
+  try{
+    const res=await fetch(`/api/stocks?analyzeCode=${parsed.code}${parsed.date?`&date=${parsed.date}`:""}&ts=${Date.now()}`);
+    const data=await res.json();
+    if(!data.success && data.message) throw new Error(data.message);
+    manualMissedAnalysis=data.analysis||null;
+    render();
+  }catch(e){
+    c.innerHTML='<div class="notice">분석하지 못했습니다.<br><br><span class="muted">'+e.message+'</span></div>';
+  }
 }
 
 function toggle(code){

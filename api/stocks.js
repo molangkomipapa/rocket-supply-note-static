@@ -448,18 +448,28 @@ export default async function handler(req, res) {
       avoidanceSignalCount: 0,
       avoidanceBreakdown: {},
       entrySignals: 0,
-      watchSignals: 0
+      watchSignals: 0,
+      noPriceData: 0,
+      shortDailyData: 0,
+      scanErrors: 0,
+      rejectionBreakdown: {}
     };
 
-    function rememberMissed(item, reason, detail) {
+    function rememberMissed(item, reason, detail, checks = []) {
       if (missedStocks.length >= 40) return;
       missedStocks.push({
         name: item.name,
         code: item.code,
         market: item.market,
         reason,
-        detail
+        detail,
+        checks
       });
+    }
+
+    function rememberRejection(item, reason, detail, checks = []) {
+      stats.rejectionBreakdown[reason] = (stats.rejectionBreakdown[reason] || 0) + 1;
+      rememberMissed(item, reason, detail, checks);
     }
 
     function getSignalPriority(signal) {
@@ -538,12 +548,12 @@ export default async function handler(req, res) {
       const reasons = [];
       let score = 0;
       const trendOk = m.ma20 > m.ma60 || m.price > m.ma60;
-      const pullbackOk = m.pullbackFromHigh20 >= 3 && m.pullbackFromHigh20 <= 15;
+      const pullbackOk = m.pullbackFromHigh20 >= 2 && m.pullbackFromHigh20 <= 20;
       const lowHoldOk =
         m.price >= m.recentBoxLow * 0.995 || m.price >= m.ma20 * 0.98;
       const volatilityOk =
         m.range5 <= m.range10 * 0.82 || m.avgRange3 <= m.avgRange5 * 0.9;
-      const volumeCompressionOk = m.volRel5_20 >= 0.5 && m.volRel5_20 <= 1.2;
+      const volumeCompressionOk = m.volRel5_20 >= 0.4 && m.volRel5_20 <= 1.6;
       const restartOk =
         m.todayVolume > m.prevVolume ||
         m.price > m.open ||
@@ -554,21 +564,32 @@ export default async function handler(req, res) {
         m.threeDayChange < 15 &&
         m.volRelToday20 < 4 &&
         !m.longBearCandle;
+      const checks = [
+        { label: "추세 유지", ok: trendOk, points: 20 },
+        { label: "고점 대비 2~20% 눌림", ok: pullbackOk, points: 15 },
+        { label: "저점 유지/20일선 지지", ok: lowHoldOk, points: 15 },
+        { label: "변동성 압축 가점", ok: volatilityOk, points: 8 },
+        { label: "거래량 압축 40~160%", ok: volumeCompressionOk, points: 15 },
+        { label: "재출발 신호", ok: restartOk, points: 15 },
+        { label: "추격 위험 없음", ok: noChaseRisk, points: 12 }
+      ];
 
       score += pushReason(reasons, trendOk, 20, "추세 유지");
-      score += pushReason(reasons, pullbackOk, 15, "고점 대비 3~15% 눌림");
+      score += pushReason(reasons, pullbackOk, 15, "고점 대비 2~20% 눌림");
       score += pushReason(reasons, lowHoldOk, 15, "저점 유지/20일선 지지");
-      score += pushReason(reasons, volatilityOk, 15, "변동성 압축");
-      score += pushReason(reasons, volumeCompressionOk, 15, "거래량 압축");
+      score += pushReason(reasons, volatilityOk, 8, "변동성 압축 가점");
+      score += pushReason(reasons, volumeCompressionOk, 15, "거래량 압축 40~160%");
       score += pushReason(reasons, restartOk, 15, "재출발 신호");
-      score += pushReason(reasons, noChaseRisk, 10, "추격 위험 없음");
+      score += pushReason(reasons, noChaseRisk, 12, "추격 위험 없음");
 
       return {
         score: Math.min(score, 100),
         strategyType: "포착",
         strategyCode: "CAPTURE",
         status: getScoreLabel(score, ["매수후보", "분할관심", "관찰후보", "제외"]),
-        reasons
+        reasons,
+        checks,
+        failedReasons: checks.filter((x) => !x.ok).map((x) => x.label)
       };
     }
 
@@ -1608,6 +1629,33 @@ export default async function handler(req, res) {
       };
     }
 
+    function buildRejectionBoard() {
+      const breakdown = Object.entries(stats.rejectionBreakdown)
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count);
+      const topReason = breakdown[0];
+
+      return {
+        title: "왜 안 잡혔나",
+        summary: topReason
+          ? `가장 많은 탈락 원인: ${topReason.reason} ${topReason.count}개`
+          : "아직 탈락 원인 데이터가 없습니다.",
+        counts: {
+          scanned: stats.scanned,
+          passed: stats.passed,
+          scoreMiss: stats.scoreMiss,
+          noPriceData: stats.noPriceData,
+          shortDailyData: stats.shortDailyData,
+          scanErrors: stats.scanErrors,
+          excludedVolume: stats.excludedVolume,
+          excludedBreakdown: stats.excludedBreakdown,
+          excludedExtremeSurge: stats.excludedExtremeSurge
+        },
+        breakdown,
+        samples: missedStocks.slice(0, 20)
+      };
+    }
+
     async function scanStock(item, index = 0) {
       try {
         stats.scanned += 1;
@@ -1616,7 +1664,15 @@ export default async function handler(req, res) {
           getPrice(item.code),
           getDailyChart(item.code)
         ]);
-        if (!priceData) return null;
+        if (!priceData) {
+          stats.noPriceData += 1;
+          rememberRejection(
+            item,
+            "가격 데이터 없음",
+            "현재가 API 응답이 비어 있어 조건을 계산하지 못했습니다."
+          );
+          return null;
+        }
 
         const price = Number(priceData.stck_prpr || 0);
         const changeRate = Number(priceData.prdy_ctrt || 0);
@@ -1636,7 +1692,15 @@ export default async function handler(req, res) {
           .filter((d) => d.close > 0)
           .slice(0, 80);
 
-        if (daily.length < 60) return null;
+        if (daily.length < 60) {
+          stats.shortDailyData += 1;
+          rememberRejection(
+            item,
+            "일봉 부족",
+            `일봉 ${daily.length}개만 확인되어 60일선/20일 평균 조건을 계산하지 못했습니다.`
+          );
+          return null;
+        }
 
         const recent3 = daily.slice(0, 3);
         const recent5 = daily.slice(0, 5);
@@ -1779,7 +1843,7 @@ export default async function handler(req, res) {
           stats.excludedBreakdown += 1;
           captureBlocked = true;
           captureBlockReason = `급락/저점 이탈 조건 · 등락률 ${changeRate.toFixed(2)}% · 20일 저점 +${distLow20.toFixed(1)}%`;
-          rememberMissed(
+          rememberRejection(
             item,
             "위험 제외",
             captureBlockReason
@@ -1789,7 +1853,7 @@ export default async function handler(req, res) {
           stats.excludedExtremeSurge += 1;
           captureBlocked = true;
           captureBlockReason = `단기 과열 조건 · 3일 ${threeDayChange.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`;
-          rememberMissed(
+          rememberRejection(
             item,
             "추격 제외",
             captureBlockReason
@@ -1799,7 +1863,7 @@ export default async function handler(req, res) {
           stats.excludedVolume += 1;
           captureBlocked = true;
           captureBlockReason = `오늘 거래량 ${todayVolume.toLocaleString()}주로 기준 미달`;
-          rememberMissed(
+          rememberRejection(
             item,
             "거래량 제외",
             captureBlockReason
@@ -1860,12 +1924,13 @@ export default async function handler(req, res) {
 
         if (captureBlocked || captureScore.score < 50) {
           stats.scoreMiss += 1;
-          rememberMissed(
+          rememberRejection(
             item,
             captureBlocked ? "조건 제외" : "점수 미달",
             captureBlocked
               ? captureBlockReason
-              : `${captureScore.strategyType} ${captureScore.score}점 · ${captureScore.reasons.slice(0, 3).join(" · ") || "핵심 조건 부족"}`
+              : `${captureScore.strategyType} ${captureScore.score}점 · 부족: ${captureScore.failedReasons.slice(0, 4).join(" · ") || "핵심 조건 부족"}`,
+            captureScore.checks
           );
           return null;
         }
@@ -1918,7 +1983,7 @@ export default async function handler(req, res) {
           positionBar: makePositionBar(boxLower),
 
           reason: captureScore.reasons.slice(0, 7).join(" · "),
-          reasonChecklist: captureScore.reasons.map((label) => ({ label, ok: true })),
+          reasonChecklist: captureScore.checks,
 
           buy: "1차 분할 / 저점 유지 시 추가",
 
@@ -1927,6 +1992,12 @@ export default async function handler(req, res) {
           target: "전고점 회복 / +5~10%"
         };
       } catch (e) {
+        stats.scanErrors += 1;
+        rememberRejection(
+          item,
+          "스캔 오류",
+          e?.message || "종목 스캔 중 알 수 없는 오류가 발생했습니다."
+        );
         return null;
       }
     }
@@ -1968,6 +2039,7 @@ export default async function handler(req, res) {
         scanned: stats.scanned,
         stats,
         marketBoard: buildMarketBoard(),
+        rejectionBoard: buildRejectionBoard(),
         avoidanceBoard: buildAvoidanceBoard(),
         avoidanceGuide: buildAvoidanceGuide(),
         updatedAt: new Date().toLocaleString("ko-KR", {

@@ -73,7 +73,7 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
 
 <script>
 const tabs=["포착","당일급등","외국기관수급","회피","개별분석","기록"];
-let active="포착", stocks=[], dayTradeStocks=[], supplyStocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, avoidanceBoard=null, avoidanceGuide=[], scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
+let active="포착", stocks=[], dayTradeStocks=[], supplyStocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, rejectionBoard=null, avoidanceBoard=null, avoidanceGuide=[], scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
 
 function grade(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
 function signalClass(code){return code==="RISK"?"red":code==="CHASE"?"orange":code==="ENTRY"?"green":"yellow"}
@@ -105,6 +105,7 @@ async function loadData(){
     avoidanceStocks=data.avoidanceStocks||[];
     missedStocks=data.missedStocks||[];
     marketBoard=data.marketBoard||null;
+    rejectionBoard=data.rejectionBoard||null;
     avoidanceBoard=data.avoidanceBoard||null;
     avoidanceGuide=data.avoidanceGuide||[];
     scanScope=data.scanScope||null;
@@ -158,6 +159,36 @@ function renderMarketBoard(){
         <div class="metric"><b>${avoidanceStocks.length}</b><span>회피 종목</span></div>
       </div>
     </div>`:""}`;
+}
+
+function renderRejectionBoard(){
+  if(!rejectionBoard) return "";
+  const c=rejectionBoard.counts||{};
+  const breakdown=rejectionBoard.breakdown||[];
+  return `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="name">${rejectionBoard.title||"왜 안 잡혔나"}</div>
+          <div class="muted">${rejectionBoard.summary||"탈락 원인을 집계하는 중입니다."}</div>
+        </div>
+        <span class="badge yellow">진단</span>
+      </div>
+      <div class="grid">
+        <div class="box"><b>스캔</b><span>${c.scanned||0}개</span></div>
+        <div class="box"><b>통과</b><span>${c.passed||0}개</span></div>
+        <div class="box"><b>점수미달</b><span>${c.scoreMiss||0}개</span></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><b>${c.noPriceData||0}</b><span>가격 없음</span></div>
+        <div class="metric"><b>${c.shortDailyData||0}</b><span>일봉 부족</span></div>
+        <div class="metric"><b>${c.excludedVolume||0}</b><span>거래량 제외</span></div>
+        <div class="metric"><b>${c.scanErrors||0}</b><span>스캔 오류</span></div>
+      </div>
+      <div class="reason"><span class="muted">원인별 집계</span><div class="checklist">
+        ${breakdown.length?breakdown.map(x=>`<div class="check no"><span class="mark">${x.count}</span><span>${x.reason}</span></div>`).join(""):'<div class="muted">아직 집계된 탈락 원인이 없습니다.</div>'}
+      </div></div>
+    </div>`;
 }
 
 function renderTabs(){
@@ -260,6 +291,7 @@ function render(){
         <div class="info">💰 ${manualMissedAnalysis.programFlow?.label||"프로그램 확인 대기"} · ${manualMissedAnalysis.programFlow?.detail||"데이터 없음"}</div>
       </div>`:"";
     c.innerHTML=`
+      ${renderRejectionBoard()}
       <div class="notice">
         종목코드 6자리${parsed.date?"와 날짜":""}로 즉시 분석할 수 있습니다.
         <br><br><button onclick="analyzeMissed()">${parsed.code?parsed.code:"종목"} 분석</button>
@@ -271,7 +303,7 @@ function render(){
           <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.market}</div></div>
           <span class="badge yellow">${s.reason}</span>
         </div>
-        <div class="reason"><span class="muted">왜 안 잡혔나</span><p>${s.detail}</p></div>
+        <div class="reason"><span class="muted">왜 안 잡혔나</span><p>${s.detail}</p>${(s.checks||[]).length?`<div class="checklist">${renderChecklist(s.checks)}</div>`:""}</div>
       </div>`).join(""):'<div class="notice">탈락 분석 샘플이 없습니다.</div>'}`;
     return;
   }

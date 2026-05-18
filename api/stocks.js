@@ -1,6 +1,7 @@
 const runtimeCache = globalThis.__rocketSupplyRuntimeCache || {
   token: null,
-  scan: null
+  scan: null,
+  scanPromise: null
 };
 globalThis.__rocketSupplyRuntimeCache = runtimeCache;
 
@@ -354,6 +355,36 @@ export default async function handler(req, res) {
 
     const sessionLabel = getSessionLabel();
 
+    const analyzeCode = analyzeCodeParam;
+    if (analyzeCode) {
+      const analyzeDate = String(req.query?.date || endDate)
+        .replace(/\D/g, "")
+        .slice(0, 8);
+      return res.status(200).json({
+        success: true,
+        analysis: await analyzeMissedCode(analyzeCode, analyzeDate || endDate),
+        updatedAt: new Date().toLocaleString("ko-KR", {
+          timeZone: "Asia/Seoul"
+        })
+      });
+    }
+
+    if (
+      !forceRefresh &&
+      runtimeCache.scanPromise?.key === scanCacheKey &&
+      runtimeCache.scanPromise.promise
+    ) {
+      const payload = await runtimeCache.scanPromise.promise;
+      return res.status(200).json({
+        ...payload,
+        cache: {
+          status: "shared-refresh",
+          ageSeconds: Math.round((Date.now() - runtimeCache.scan.savedAt) / 1000),
+          ttlSeconds: scanCacheTtlSeconds
+        }
+      });
+    }
+
     const [kospiResult, kosdaqResult] = await Promise.allSettled([
       getMarketCapRank("0001", kospiScanCount),
       getMarketCapRank("1001", kosdaqScanCount)
@@ -413,6 +444,7 @@ export default async function handler(req, res) {
       riskCandidates: 0,
       chaseCandidates: 0,
       avoidanceSignalCount: 0,
+      avoidanceBreakdown: {},
       entrySignals: 0,
       watchSignals: 0
     };
@@ -428,23 +460,35 @@ export default async function handler(req, res) {
       });
     }
 
+    function getSignalPriority(signal) {
+      if (signal.severity === "RISK") return 3;
+      if (signal.severity === "CHASE") return 2;
+      return 1;
+    }
+
     function rememberAvoidanceStock(item, m, avoidanceSignals, finalScore = 0) {
-      const actionableSignals = avoidanceSignals.filter(
-        (x) => x.severity === "RISK" || x.severity === "CHASE"
+      const displaySignals = avoidanceSignals.filter(
+        (x) => x.severity === "RISK" || x.severity === "CHASE" || x.severity === "WATCH"
       );
-      if (!actionableSignals.length) return;
+      if (!displaySignals.length) return;
 
       const existing = avoidanceStocks.find((x) => x.code === item.code);
       if (existing) {
         existing.avoidanceSignals = [
           ...existing.avoidanceSignals,
-          ...actionableSignals.filter(
+          ...displaySignals.filter(
             (signal) =>
               !existing.avoidanceSignals.some((x) => x.code === signal.code)
           )
-        ];
+        ].sort((a, b) => getSignalPriority(b) - getSignalPriority(a));
         existing.reason = existing.avoidanceSignals.map((x) => x.label).join(" · ");
         existing.score = Math.max(existing.score, finalScore);
+        existing.avoidanceType =
+          existing.avoidanceSignals.some((x) => x.severity === "RISK")
+            ? "위험"
+            : existing.avoidanceSignals.some((x) => x.severity === "CHASE")
+            ? "추격주의"
+            : "관찰";
         return;
       }
 
@@ -455,12 +499,16 @@ export default async function handler(req, res) {
         price: m.price.toLocaleString(),
         change: `${m.changeRate > 0 ? "+" : ""}${m.changeRate.toFixed(2)}%`,
         score: finalScore,
-        avoidanceType: actionableSignals.some((x) => x.severity === "RISK")
+        avoidanceType: displaySignals.some((x) => x.severity === "RISK")
           ? "위험"
-          : "추격주의",
-        reason: actionableSignals.map((x) => x.label).join(" · "),
+          : displaySignals.some((x) => x.severity === "CHASE")
+          ? "추격주의"
+          : "관찰",
+        reason: displaySignals.map((x) => x.label).join(" · "),
         chart: `20일선 ${m.price >= m.ma20 ? "상회" : "이탈"} · 고점대비 -${m.pullbackFromHigh20.toFixed(1)}% · 거래량 ${m.volRelToday20.toFixed(2)}배`,
-        avoidanceSignals: actionableSignals
+        avoidanceSignals: displaySignals.sort(
+          (a, b) => getSignalPriority(b) - getSignalPriority(a)
+        )
       });
     }
 
@@ -611,18 +659,29 @@ export default async function handler(req, res) {
 
     function buildAvoidanceSignals(m) {
       const signals = [];
+      const bearishCandle = m.price < m.open;
+      const heavyVolume = m.volRelToday20 > 4;
+      const distributionAfterSurge =
+        m.hasBigCandle10 &&
+        bearishCandle &&
+        m.volRelToday20 >= 1.5 &&
+        (m.upperWickRatio > 0.35 || m.price < m.ma5);
 
       if (
-        m.changeRate > 10 &&
-        m.volRelToday20 > 4 &&
-        m.upperWickRatio > 0.4
+        (m.changeRate > 10 && heavyVolume && m.upperWickRatio > 0.4) ||
+        distributionAfterSurge
       ) {
         signals.push({
-          code: "SURGE_VOLUME_UPPER_WICK",
-          type: "추격주의",
-          severity: "CHASE",
-          label: "급등 후 거래량 폭발 + 윗꼬리",
-          detail: "마지막 추격 매수 가능성, 고점권 추격 제외"
+          code: "SURGE_VOLUME_DISTRIBUTION",
+          type: distributionAfterSurge ? "위험" : "추격주의",
+          severity: distributionAfterSurge ? "RISK" : "CHASE",
+          label: distributionAfterSurge
+            ? "급등 후 거래량 동반 음봉"
+            : "급등 후 거래량 폭발 + 윗꼬리",
+          detail: distributionAfterSurge
+            ? "장대양봉 이후 거래량 증가 음봉, 세력 정리 가능성"
+            : "마지막 추격 매수 가능성, 고점권 추격 제외",
+          guide: "뉴스성 추격보다 눌림과 거래량 진정을 먼저 확인"
         });
       }
 
@@ -637,7 +696,8 @@ export default async function handler(req, res) {
           type: "위험",
           severity: "RISK",
           label: "강한 추세 첫 훼손",
-          detail: "상승하던 20일선 이탈 + 거래량 증가 음봉"
+          detail: "상승하던 20일선 이탈 + 거래량 증가 음봉",
+          guide: "20일선 회복 전까지 신규 진입 보류"
         });
       }
 
@@ -651,7 +711,8 @@ export default async function handler(req, res) {
           type: "위험",
           severity: "RISK",
           label: "고점 대비 급락 시작",
-          detail: "고점권 장대음봉과 거래량 증가, 세력 이탈 가능성"
+          detail: "고점권 장대음봉과 거래량 증가, 세력 이탈 가능성",
+          guide: "아무리 좋은 종목이어도 위치가 고점 붕괴면 제외"
         });
       }
 
@@ -661,7 +722,8 @@ export default async function handler(req, res) {
           type: "관찰",
           severity: "WATCH",
           label: "반등 실패 반복",
-          detail: "최근 5일 중 윗꼬리 캔들 3개 이상, 위 매물 부담"
+          detail: "최근 5일 중 윗꼬리 캔들 3개 이상, 위 매물 부담",
+          guide: "돌파 성공과 종가 안착 확인 전까지 관망"
         });
       }
 
@@ -671,7 +733,8 @@ export default async function handler(req, res) {
           type: "관찰",
           severity: "WATCH",
           label: "거래량 없는 반등",
-          detail: "가격은 올랐지만 수급 확인 부족"
+          detail: "가격은 올랐지만 수급 확인 부족",
+          guide: "수급 기반 전략에서는 신뢰 낮음"
         });
       }
 
@@ -686,7 +749,8 @@ export default async function handler(req, res) {
           type: "위험",
           severity: "RISK",
           label: "급등 후 박스 붕괴",
-          detail: "급등 후 재압축 실패, 박스 하단 이탈"
+          detail: "급등 후 재압축 실패, 박스 하단 이탈",
+          guide: "재압축 실패형이라 반등보다 손절/회피 우선"
         });
       }
 
@@ -809,6 +873,123 @@ export default async function handler(req, res) {
       };
     }
 
+    function getSignalLabel(severity) {
+      if (severity === "RISK") return "위험";
+      if (severity === "CHASE") return "추격주의";
+      return "관찰";
+    }
+
+    function buildAvoidanceGuide() {
+      return [
+        {
+          code: "SURGE_VOLUME_DISTRIBUTION",
+          label: "급등 후 거래량 폭발 + 음봉",
+          severity: "RISK",
+          condition: "장대양봉 이후 거래량 증가 음봉 또는 윗꼬리",
+          meaning: "마지막 추격 매수와 세력 일부 정리 가능성",
+          action: "추격 금지, 거래량 진정 전까지 회피"
+        },
+        {
+          code: "FIRST_TREND_BREAK",
+          label: "강한 추세 첫 훼손",
+          severity: "RISK",
+          condition: "20일선 상승 중 20일선 이탈 + 거래량 증가 음봉",
+          meaning: "추세 훼손 시작 가능성",
+          action: "20일선 회복 전까지 신규 진입 보류"
+        },
+        {
+          code: "HIGH_AREA_DISTRIBUTION",
+          label: "고점 대비 급락 시작",
+          severity: "RISK",
+          condition: "신고가/고점권 근처에서 장대음봉 + 거래량 증가",
+          meaning: "세력 이탈 가능성",
+          action: "좋은 종목이어도 위험 위치면 제외"
+        },
+        {
+          code: "REPEATED_REBOUND_FAIL",
+          label: "반등 실패 반복",
+          severity: "WATCH",
+          condition: "최근 5일 중 윗꼬리 캔들 3개 이상",
+          meaning: "위 매물 부담",
+          action: "종가 돌파와 안착 확인"
+        },
+        {
+          code: "LOW_VOLUME_REBOUND",
+          label: "거래량 없는 반등",
+          severity: "WATCH",
+          condition: "등락률 +3% 초과 + 거래량 20일 평균 0.7배 미만",
+          meaning: "진짜 수급이 아닌 가짜 반등 가능성",
+          action: "수급 보강 전까지 신뢰 낮게 판단"
+        },
+        {
+          code: "SURGE_BOX_BREAKDOWN",
+          label: "급등 후 박스 붕괴",
+          severity: "RISK",
+          condition: "급등 이후 횡보 박스 하단 이탈 + 거래량 증가",
+          meaning: "재압축 실패",
+          action: "반등 기대보다 회피 우선"
+        }
+      ];
+    }
+
+    function buildAvoidanceBoard() {
+      const riskCount = avoidanceStocks.filter((x) => x.avoidanceType === "위험").length;
+      const chaseCount = avoidanceStocks.filter((x) => x.avoidanceType === "추격주의").length;
+      const watchCount = avoidanceStocks.filter((x) => x.avoidanceType === "관찰").length;
+      const topSignals = avoidanceStocks.slice(0, 8).map((stock) => ({
+        name: stock.name,
+        code: stock.code,
+        market: stock.market,
+        price: stock.price,
+        change: stock.change,
+        avoidanceType: stock.avoidanceType,
+        reason: stock.reason,
+        guide: stock.avoidanceSignals[0]?.guide || stock.avoidanceSignals[0]?.detail || "",
+        chart: stock.chart
+      }));
+
+      return {
+        title: "무엇을 피해야 하는가",
+        summary:
+          riskCount > 0
+            ? `위험 위치 ${riskCount}개: 추세 훼손·거래량 동반 급락 우선 회피`
+            : chaseCount > 0
+            ? `추격주의 ${chaseCount}개: 급등·거래량 폭발 구간은 눌림 대기`
+            : watchCount > 0
+            ? `관찰 ${watchCount}개: 구조는 보되 수급 확인 필요`
+            : "뚜렷한 회피 신호는 적음",
+        buckets: [
+          {
+            label: "관심",
+            tone: "ENTRY",
+            description: "수급 회복 · 저점 유지 · 분할 관심"
+          },
+          {
+            label: "관찰",
+            tone: "WATCH",
+            description: "좋은 구조지만 확인 필요"
+          },
+          {
+            label: "위험",
+            tone: "RISK",
+            description: "추세 훼손 · 거래량 동반 급락 · 20일선 이탈"
+          },
+          {
+            label: "추격주의",
+            tone: "CHASE",
+            description: "급등 · 거래량 폭발 · 윗꼬리"
+          }
+        ],
+        counts: {
+          risk: riskCount,
+          chase: chaseCount,
+          watch: watchCount,
+          bySignal: stats.avoidanceBreakdown
+        },
+        topSignals
+      };
+    }
+
     function getPositionLabel(boxLower) {
       if (boxLower <= 0.35) return "저점권";
       if (boxLower <= 0.7) return "중단권";
@@ -871,10 +1052,197 @@ export default async function handler(req, res) {
       };
     }
 
+    async function analyzeMissedCode(code, targetDate = endDate, item = null) {
+      const resolvedItem = item || {
+        code,
+        name: code,
+        market: "직접입력"
+      };
+      const dailyRaw = await getDailyChart(code, marketDataCode, targetDate);
+      const daily = dailyRaw
+        .map((d) => ({
+          close: Number(d.stck_clpr || 0),
+          open: Number(d.stck_oprc || 0),
+          high: Number(d.stck_hgpr || 0),
+          low: Number(d.stck_lwpr || 0),
+          volume: Number(d.acml_vol || 0),
+          date: d.stck_bsop_date || d.bsop_date || ""
+        }))
+        .filter((d) => d.close > 0)
+        .slice(0, 80);
+
+      if (daily.length < 60) {
+        return {
+          name: resolvedItem.name,
+          code,
+          market: resolvedItem.market,
+          date: targetDate,
+          verdict: "분석 불가",
+          detail: "일봉 데이터가 60개 미만이라 조건을 계산할 수 없습니다.",
+          checks: []
+        };
+      }
+
+      const today = daily[0];
+      const recent3 = daily.slice(0, 3);
+      const recent5 = daily.slice(0, 5);
+      const recent10 = daily.slice(0, 10);
+      const recent20 = daily.slice(0, 20);
+      const recent40 = daily.slice(0, 40);
+      const recent60 = daily.slice(0, 60);
+
+      const price = today.close;
+      const open = today.open;
+      const low = today.low;
+      const ma5 = avg(recent5.map((d) => d.close));
+      const ma20 = avg(recent20.map((d) => d.close));
+      const ma60 = avg(recent60.map((d) => d.close));
+      const ma20Prev5 = avg(daily.slice(5, 25).map((d) => d.close));
+      const avgVol5 = avg(recent5.map((d) => d.volume));
+      const avgVol20 = avg(recent20.map((d) => d.volume));
+      const low20 = Math.min(...recent20.map((d) => d.low));
+      const low60 = Math.min(...recent60.map((d) => d.low));
+      const high20 = Math.max(...recent20.map((d) => d.high));
+      const high40 = Math.max(...recent40.map((d) => d.high));
+      const low40 = Math.min(...recent40.map((d) => d.low));
+      const prevClose = daily[1]?.close || 0;
+      const changeRate = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+      const threeDayChange =
+        daily[2]?.close > 0 ? ((price - daily[2].close) / daily[2].close) * 100 : 0;
+      const distLow20 = low20 > 0 ? ((price - low20) / low20) * 100 : 999;
+      const distLow60 = low60 > 0 ? ((price - low60) / low60) * 100 : 999;
+      const range40 = low40 > 0 ? ((high40 - low40) / low40) * 100 : 999;
+      const boxLower = high40 > low40 ? (price - low40) / (high40 - low40) : 1;
+      const pullbackFromHigh20 =
+        high20 > 0 ? ((high20 - price) / high20) * 100 : 0;
+      const volRel5_20 = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
+      const volRelToday20 = avgVol20 > 0 ? today.volume / avgVol20 : 1;
+      const volumeRecoveryDays = recent5.filter(
+        (d) => avgVol20 > 0 && d.volume >= avgVol20
+      ).length;
+      const volBuild3 =
+        recent3.length === 3 &&
+        recent3[0].volume >= recent3[1].volume &&
+        recent3[1].volume >= recent3[2].volume;
+      const ma20Slope = ma20Prev5 > 0 ? ((ma20 - ma20Prev5) / ma20Prev5) * 100 : 0;
+      const intradayRebound = low > 0 ? ((price - low) / low) * 100 : 0;
+      const upperWickRatio = getUpperWickRatio(today);
+      const recentUpperWickCount = recent5.filter(
+        (d) => getUpperWickRatio(d) >= 0.4
+      ).length;
+      const recentBoxLow = recent10.length > 1
+        ? Math.min(...recent10.slice(1).map((d) => d.low))
+        : low20;
+      const bigCandle = recent10.find((d) => {
+        const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
+        return body >= 5 && d.volume >= avgVol20 * 1.5;
+      });
+      const programFlow = analyzeProgramContinuity(
+        await getProgramTradeDaily(code, marketDataCode, targetDate).catch(() => [])
+      );
+
+      const metrics = {
+        price,
+        open,
+        high: today.high,
+        low,
+        changeRate,
+        todayVolume: today.volume,
+        ma5,
+        ma20,
+        ma60,
+        ma20Slope,
+        distLow20,
+        distLow60,
+        range40,
+        boxLower,
+        volRel5_20,
+        volRelToday20,
+        volumeRecoveryDays,
+        volBuild3,
+        intradayRebound,
+        pullbackFromHigh20,
+        upperWickRatio,
+        recentUpperWickCount,
+        recentBoxLow,
+        hasBigCandle10: !!bigCandle,
+        afterBigCandleHold: !!bigCandle && price >= low20 * 1.03,
+        volCoolingAfterSurge: !!bigCandle && volRelToday20 <= 2.5,
+        low20,
+        high20,
+        threeDayChange,
+        prevClose,
+        programFlow
+      };
+
+      const strategyScores = evaluateStrategies(metrics);
+      const best = strategyScores[0];
+      const avoidanceSignals = buildAvoidanceSignals(metrics);
+      let finalScore = best.score;
+      const failed = [];
+
+      if (changeRate <= -7 || price < low20 * 0.94) {
+        failed.push("급락/저점 이탈");
+      }
+      failed.push(
+        ...avoidanceSignals
+          .filter((x) => x.severity !== "WATCH")
+          .map((x) => x.label)
+      );
+      if ((changeRate >= 12 || threeDayChange >= 25) && !isHealthyTrend(metrics)) {
+        failed.push("단기 과열 추격 제외");
+      }
+      if (today.volume < 20000) failed.push("거래량 기준 미달");
+      if (finalScore < 50) failed.push(`${best.strategyType} 점수 미달`);
+
+      if (changeRate >= 8) finalScore -= 12;
+      if (threeDayChange >= 15) finalScore -= 10;
+      if (volRelToday20 > 4) finalScore -= 10;
+      finalScore -= avoidanceSignals.filter((x) => x.severity === "RISK").length * 12;
+      finalScore -= avoidanceSignals.filter((x) => x.severity === "CHASE").length * 8;
+      if (programFlow.threeDayPositive) finalScore += 6;
+      else if (programFlow.positiveDays >= 3) finalScore += 3;
+      finalScore = Math.max(0, Math.min(finalScore, 100));
+
+      const signal = classifySignal(metrics, finalScore, best.strategyCode);
+      const entryDecision = getEntryDecision(
+        signal,
+        metrics,
+        finalScore,
+        best.strategyCode
+      );
+
+      return {
+        name: resolvedItem.name,
+        code,
+        market: resolvedItem.market,
+        date: today.date || targetDate,
+        verdict: failed.length ? "탈락/관찰 사유 있음" : "조건 통과 가능",
+        detail: failed.length
+          ? failed.join(" · ")
+          : `${best.strategyType} ${finalScore}점 · ${entryDecision.entryLabel}`,
+        score: finalScore,
+        strategyType: best.strategyType,
+        signalType: signal.signalType,
+        entryLabel: entryDecision.entryLabel,
+        avoidanceSignals,
+        programFlow,
+        positionLabel: getPositionLabel(boxLower),
+        positionPercent: Math.max(0, Math.min(Math.round(boxLower * 100), 100)),
+        checks: buildReasonChecklist(best, metrics)
+      };
+    }
+
     function addMarketStats(m) {
       stats.validCharts += 1;
       const avoidanceSignals = buildAvoidanceSignals(m);
-      if (avoidanceSignals.length) stats.avoidanceSignalCount += 1;
+      if (avoidanceSignals.length) {
+        stats.avoidanceSignalCount += 1;
+        avoidanceSignals.forEach((signal) => {
+          stats.avoidanceBreakdown[signal.code] =
+            (stats.avoidanceBreakdown[signal.code] || 0) + 1;
+        });
+      }
       if (m.changeRate > 0) stats.rising += 1;
       if (m.price >= m.ma20) stats.aboveMa20 += 1;
       if (m.price >= m.ma20 && m.prevClose < m.ma20) stats.recoveredMa20 += 1;
@@ -896,16 +1264,24 @@ export default async function handler(req, res) {
       ) {
         stats.trendPullbackCandidates += 1;
       }
-      if (
+      const hasGenericRisk =
         m.changeRate <= -5 ||
         m.price < m.ma20 * 0.97 ||
-        (m.changeRate < 0 && m.volRelToday20 >= 2.3 && m.price < m.open)
-      ) {
+        (m.changeRate < 0 && m.volRelToday20 >= 2.3 && m.price < m.open);
+      const hasRiskSignal = avoidanceSignals.some((x) => x.severity === "RISK");
+      if (hasGenericRisk) {
         stats.sharpDrop += 1;
+      }
+      if (hasGenericRisk || hasRiskSignal) {
         stats.riskCandidates += 1;
       }
-      if (m.changeRate >= 8 || m.threeDayChange >= 15 || m.volRelToday20 >= 4) {
+      const hasGenericChase =
+        m.changeRate >= 8 || m.threeDayChange >= 15 || m.volRelToday20 >= 4;
+      const hasChaseSignal = avoidanceSignals.some((x) => x.severity === "CHASE");
+      if (hasGenericChase) {
         stats.sharpSurge += 1;
+      }
+      if (hasGenericChase || hasChaseSignal) {
         stats.chaseCandidates += 1;
       }
     }
@@ -1044,6 +1420,13 @@ export default async function handler(req, res) {
         const recentBoxLow = recent10.length > 1
           ? Math.min(...recent10.slice(1).map((d) => d.low))
           : low20;
+        const bigCandle = recent10.find((d) => {
+          const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
+          return body >= 5 && d.volume >= avgVol20 * 1.5;
+        });
+        const hasBigCandle10 = !!bigCandle;
+        const afterBigCandleHold = hasBigCandle10 && price >= low20 * 1.03;
+        const volCoolingAfterSurge = hasBigCandle10 && volRelToday20 <= 2.5;
 
         const baseMetrics = {
           price,
@@ -1069,9 +1452,9 @@ export default async function handler(req, res) {
           upperWickRatio,
           recentUpperWickCount,
           recentBoxLow,
-          hasBigCandle10: false,
-          afterBigCandleHold: false,
-          volCoolingAfterSurge: false,
+          hasBigCandle10,
+          afterBigCandleHold,
+          volCoolingAfterSurge,
           low20,
           high20,
           threeDayChange,
@@ -1120,20 +1503,8 @@ export default async function handler(req, res) {
             : [];
         const programFlow = analyzeProgramContinuity(programRows);
 
-        const bigCandle = recent10.find((d) => {
-          const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
-          return body >= 5 && d.volume >= avgVol20 * 1.5;
-        });
-
-        const hasBigCandle10 = !!bigCandle;
-        const afterBigCandleHold = hasBigCandle10 && price >= low20 * 1.03;
-        const volCoolingAfterSurge = hasBigCandle10 && volRelToday20 <= 2.5;
-
         const metrics = {
           ...baseMetrics,
-          hasBigCandle10,
-          afterBigCandleHold,
-          volCoolingAfterSurge,
           programFlow
         };
         const avoidanceSignals = buildAvoidanceSignals(metrics);
@@ -1180,10 +1551,17 @@ export default async function handler(req, res) {
         finalScore = Math.max(0, Math.min(finalScore, 100));
         const signal = classifySignal(metrics, finalScore, best.strategyCode);
         rememberAvoidanceStock(item, metrics, avoidanceSignals, finalScore);
+        const hasAvoidanceWatch = avoidanceSignals.some((x) => x.severity === "WATCH");
         if (
-          (signal.signalCode === "RISK" || signal.signalCode === "CHASE") &&
+          (signal.signalCode === "RISK" ||
+            signal.signalCode === "CHASE" ||
+            hasAvoidanceWatch) &&
           !signalStocks.some((s) => s.code === item.code && s.signalCode === signal.signalCode)
         ) {
+          const topAvoidance =
+            avoidanceSignals.find((x) => x.severity === "RISK") ||
+            avoidanceSignals.find((x) => x.severity === "CHASE") ||
+            avoidanceSignals.find((x) => x.severity === "WATCH");
           signalStocks.push({
             name: item.name,
             code: item.code,
@@ -1191,10 +1569,11 @@ export default async function handler(req, res) {
             price: price.toLocaleString(),
             change: `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%`,
             score: finalScore,
-            signalType: signal.signalType,
-            signalCode: signal.signalCode,
-            signalSummary: signal.signalSummary,
-            reason: signal.signalSummary,
+            signalType: topAvoidance ? getSignalLabel(topAvoidance.severity) : signal.signalType,
+            signalCode: topAvoidance?.severity || signal.signalCode,
+            signalSummary: topAvoidance?.label || signal.signalSummary,
+            reason: topAvoidance?.detail || signal.signalSummary,
+            entryGuide: topAvoidance?.guide || "",
             chart: `20일선 ${price >= ma20 ? "상회" : "이탈"} · 고점대비 -${pullbackFromHigh20.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`
           });
         }
@@ -1288,242 +1667,79 @@ export default async function handler(req, res) {
       }
     }
 
-    async function analyzeMissedCode(code, targetDate = endDate) {
-      const item =
-        universe.find((x) => x.code === code) || {
-          code,
-          name: code,
-          market: "직접입력"
-        };
-      const dailyRaw = await getDailyChart(code, marketDataCode, targetDate);
-      const daily = dailyRaw
-        .map((d) => ({
-          close: Number(d.stck_clpr || 0),
-          open: Number(d.stck_oprc || 0),
-          high: Number(d.stck_hgpr || 0),
-          low: Number(d.stck_lwpr || 0),
-          volume: Number(d.acml_vol || 0),
-          date: d.stck_bsop_date || d.bsop_date || ""
-        }))
-        .filter((d) => d.close > 0)
-        .slice(0, 80);
-
-      if (daily.length < 60) {
-        return {
-          name: item.name,
-          code,
-          market: item.market,
-          date: targetDate,
-          verdict: "분석 불가",
-          detail: "일봉 데이터가 60개 미만이라 조건을 계산할 수 없습니다.",
-          checks: []
-        };
-      }
-
-      const today = daily[0];
-      const recent3 = daily.slice(0, 3);
-      const recent5 = daily.slice(0, 5);
-      const recent10 = daily.slice(0, 10);
-      const recent20 = daily.slice(0, 20);
-      const recent40 = daily.slice(0, 40);
-      const recent60 = daily.slice(0, 60);
-
-      const price = today.close;
-      const open = today.open;
-      const low = today.low;
-      const ma5 = avg(recent5.map((d) => d.close));
-      const ma20 = avg(recent20.map((d) => d.close));
-      const ma60 = avg(recent60.map((d) => d.close));
-      const ma20Prev5 = avg(daily.slice(5, 25).map((d) => d.close));
-      const avgVol5 = avg(recent5.map((d) => d.volume));
-      const avgVol20 = avg(recent20.map((d) => d.volume));
-      const low20 = Math.min(...recent20.map((d) => d.low));
-      const low60 = Math.min(...recent60.map((d) => d.low));
-      const high20 = Math.max(...recent20.map((d) => d.high));
-      const high40 = Math.max(...recent40.map((d) => d.high));
-      const low40 = Math.min(...recent40.map((d) => d.low));
-      const prevClose = daily[1]?.close || 0;
-      const changeRate = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-      const threeDayChange =
-        daily[2]?.close > 0 ? ((price - daily[2].close) / daily[2].close) * 100 : 0;
-      const distLow20 = low20 > 0 ? ((price - low20) / low20) * 100 : 999;
-      const distLow60 = low60 > 0 ? ((price - low60) / low60) * 100 : 999;
-      const range40 = low40 > 0 ? ((high40 - low40) / low40) * 100 : 999;
-      const boxLower = high40 > low40 ? (price - low40) / (high40 - low40) : 1;
-      const pullbackFromHigh20 =
-        high20 > 0 ? ((high20 - price) / high20) * 100 : 0;
-      const volRel5_20 = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
-      const volRelToday20 = avgVol20 > 0 ? today.volume / avgVol20 : 1;
-      const volumeRecoveryDays = recent5.filter(
-        (d) => avgVol20 > 0 && d.volume >= avgVol20
-      ).length;
-      const volBuild3 =
-        recent3.length === 3 &&
-        recent3[0].volume >= recent3[1].volume &&
-        recent3[1].volume >= recent3[2].volume;
-      const ma20Slope = ma20Prev5 > 0 ? ((ma20 - ma20Prev5) / ma20Prev5) * 100 : 0;
-      const intradayRebound = low > 0 ? ((price - low) / low) * 100 : 0;
-      const upperWickRatio = getUpperWickRatio(today);
-      const recentUpperWickCount = recent5.filter(
-        (d) => getUpperWickRatio(d) >= 0.4
-      ).length;
-      const recentBoxLow = recent10.length > 1
-        ? Math.min(...recent10.slice(1).map((d) => d.low))
-        : low20;
-      const bigCandle = recent10.find((d) => {
-        const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
-        return body >= 5 && d.volume >= avgVol20 * 1.5;
+    if (
+      !forceRefresh &&
+      runtimeCache.scanPromise?.key === scanCacheKey &&
+      runtimeCache.scanPromise.promise
+    ) {
+      const payload = await runtimeCache.scanPromise.promise;
+      return res.status(200).json({
+        ...payload,
+        cache: {
+          status: "shared-refresh",
+          ageSeconds: Math.round((Date.now() - runtimeCache.scan.savedAt) / 1000),
+          ttlSeconds: scanCacheTtlSeconds
+        }
       });
-      const programFlow = analyzeProgramContinuity(
-        await getProgramTradeDaily(code, marketDataCode, targetDate).catch(() => [])
-      );
-
-      const metrics = {
-        price,
-        open,
-        high: today.high,
-        low,
-        changeRate,
-        todayVolume: today.volume,
-        ma5,
-        ma20,
-        ma60,
-        ma20Slope,
-        distLow20,
-        distLow60,
-        range40,
-        boxLower,
-        volRel5_20,
-        volRelToday20,
-        volumeRecoveryDays,
-        volBuild3,
-        intradayRebound,
-        pullbackFromHigh20,
-        upperWickRatio,
-        recentUpperWickCount,
-        recentBoxLow,
-        hasBigCandle10: !!bigCandle,
-        afterBigCandleHold: !!bigCandle && price >= low20 * 1.03,
-        volCoolingAfterSurge: !!bigCandle && volRelToday20 <= 2.5,
-        low20,
-        high20,
-        threeDayChange,
-        prevClose,
-        programFlow
-      };
-
-      const strategyScores = evaluateStrategies(metrics);
-      const best = strategyScores[0];
-      const avoidanceSignals = buildAvoidanceSignals(metrics);
-      let finalScore = best.score;
-      const failed = [];
-
-      if (changeRate <= -7 || price < low20 * 0.94) {
-        failed.push("급락/저점 이탈");
-      }
-      failed.push(
-        ...avoidanceSignals
-          .filter((x) => x.severity !== "WATCH")
-          .map((x) => x.label)
-      );
-      if ((changeRate >= 12 || threeDayChange >= 25) && !isHealthyTrend(metrics)) {
-        failed.push("단기 과열 추격 제외");
-      }
-      if (today.volume < 20000) failed.push("거래량 기준 미달");
-      if (finalScore < 50) failed.push(`${best.strategyType} 점수 미달`);
-
-      if (changeRate >= 8) finalScore -= 12;
-      if (threeDayChange >= 15) finalScore -= 10;
-      if (volRelToday20 > 4) finalScore -= 10;
-      finalScore -= avoidanceSignals.filter((x) => x.severity === "RISK").length * 12;
-      finalScore -= avoidanceSignals.filter((x) => x.severity === "CHASE").length * 8;
-      if (programFlow.threeDayPositive) finalScore += 6;
-      else if (programFlow.positiveDays >= 3) finalScore += 3;
-      finalScore = Math.max(0, Math.min(finalScore, 100));
-
-      const signal = classifySignal(metrics, finalScore, best.strategyCode);
-      const entryDecision = getEntryDecision(
-        signal,
-        metrics,
-        finalScore,
-        best.strategyCode
-      );
-
-      return {
-        name: item.name,
-        code,
-        market: item.market,
-        date: today.date || targetDate,
-        verdict: failed.length ? "탈락/관찰 사유 있음" : "조건 통과 가능",
-        detail: failed.length
-          ? failed.join(" · ")
-          : `${best.strategyType} ${finalScore}점 · ${entryDecision.entryLabel}`,
-        score: finalScore,
-        strategyType: best.strategyType,
-        signalType: signal.signalType,
-        entryLabel: entryDecision.entryLabel,
-        avoidanceSignals,
-        programFlow,
-        positionLabel: getPositionLabel(boxLower),
-        positionPercent: Math.max(0, Math.min(Math.round(boxLower * 100), 100)),
-        checks: buildReasonChecklist(best, metrics)
-      };
     }
 
-    const analyzeCode = String(req.query?.analyzeCode || "").trim();
-    if (analyzeCode) {
-      const analyzeDate = String(req.query?.date || endDate)
-        .replace(/\D/g, "")
-        .slice(0, 8);
-      return res.status(200).json({
+    const scanPromise = (async () => {
+      const scannedStocks = await mapWithConcurrency(
+        universe,
+        scanConcurrency,
+        scanStock
+      );
+      stocks.push(...scannedStocks.filter(Boolean));
+
+      stocks.sort((a, b) => b.score - a.score);
+      signalStocks.sort((a, b) => {
+        const weight = { RISK: 3, CHASE: 2, WATCH: 1 };
+        return (weight[b.signalCode] || 0) - (weight[a.signalCode] || 0) || b.score - a.score;
+      });
+      avoidanceStocks.sort((a, b) => {
+        const weight = { 위험: 3, 추격주의: 2, 관찰: 1 };
+        return (weight[b.avoidanceType] || 0) - (weight[a.avoidanceType] || 0) || b.score - a.score;
+      });
+
+      const payload = {
         success: true,
-        analysis: await analyzeMissedCode(analyzeCode, analyzeDate || endDate),
+        mode: "3전략 통합 수급 스윙 스캐너",
+        session: sessionLabel,
+        scanScope,
+        scanned: stats.scanned,
+        stats,
+        marketBoard: buildMarketBoard(),
+        avoidanceBoard: buildAvoidanceBoard(),
+        avoidanceGuide: buildAvoidanceGuide(),
         updatedAt: new Date().toLocaleString("ko-KR", {
           timeZone: "Asia/Seoul"
-        })
-      });
-    }
+        }),
+        stocks: stocks.slice(0, 40),
+        signalStocks: signalStocks.slice(0, 30),
+        avoidanceStocks: avoidanceStocks.slice(0, 40),
+        missedStocks: missedStocks.slice(0, 30),
+        sectors: []
+      };
 
-    const scannedStocks = await mapWithConcurrency(
-      universe,
-      scanConcurrency,
-      scanStock
-    );
-    stocks.push(...scannedStocks.filter(Boolean));
+      runtimeCache.scan = {
+        key: scanCacheKey,
+        savedAt: Date.now(),
+        payload
+      };
 
-    stocks.sort((a, b) => b.score - a.score);
-    signalStocks.sort((a, b) => {
-      const weight = { RISK: 2, CHASE: 1 };
-      return (weight[b.signalCode] || 0) - (weight[a.signalCode] || 0) || b.score - a.score;
-    });
-    avoidanceStocks.sort((a, b) => {
-      const weight = { 위험: 2, 추격주의: 1 };
-      return (weight[b.avoidanceType] || 0) - (weight[a.avoidanceType] || 0) || b.score - a.score;
-    });
+      return payload;
+    })();
 
-    const payload = {
-      success: true,
-      mode: "3전략 통합 수급 스윙 스캐너",
-      session: sessionLabel,
-      scanScope,
-      scanned: stats.scanned,
-      stats,
-      marketBoard: buildMarketBoard(),
-      updatedAt: new Date().toLocaleString("ko-KR", {
-        timeZone: "Asia/Seoul"
-      }),
-      stocks: stocks.slice(0, 40),
-      signalStocks: signalStocks.slice(0, 30),
-      avoidanceStocks: avoidanceStocks.slice(0, 40),
-      missedStocks: missedStocks.slice(0, 30),
-      sectors: []
-    };
-
-    runtimeCache.scan = {
+    runtimeCache.scanPromise = {
       key: scanCacheKey,
-      savedAt: Date.now(),
-      payload
+      promise: scanPromise
     };
+
+    const payload = await scanPromise.finally(() => {
+      if (runtimeCache.scanPromise?.promise === scanPromise) {
+        runtimeCache.scanPromise = null;
+      }
+    });
 
     return res.status(200).json({
       ...payload,
@@ -1537,17 +1753,14 @@ export default async function handler(req, res) {
     const now = Date.now();
     if (
       runtimeCache.scan?.payload &&
-      now - runtimeCache.scan.savedAt < 3600 * 1000
+      now - runtimeCache.scan.savedAt < scanStaleTtlSeconds * 1000
     ) {
       return res.status(200).json({
         ...runtimeCache.scan.payload,
         cache: {
           status: "stale",
           ageSeconds: Math.round((now - runtimeCache.scan.savedAt) / 1000),
-          ttlSeconds: Math.max(
-            180,
-            Math.min(Number(process.env.SCAN_STALE_TTL_SECONDS ?? 900), 3600)
-          ),
+          ttlSeconds: scanStaleTtlSeconds,
           warning: `최신 스캔 실패로 최근 성공 데이터를 표시합니다: ${error.message}`
         }
       });

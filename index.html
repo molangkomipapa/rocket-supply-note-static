@@ -11,7 +11,7 @@ body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSy
 .sub{color:#94a3b8;font-size:14px}.title{font-size:28px;font-weight:800}
 .icon{width:48px;height:48px;border-radius:18px;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:25px}
 .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin:16px 0;text-align:center}
-.market{background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin-bottom:14px}.marketTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.marketStatus{font-size:20px;font-weight:800}.marketTone{font-size:12px;padding:6px 9px;border-radius:999px;white-space:nowrap}.toneENTRY{background:rgba(16,185,129,.16);color:#6ee7b7}.toneWATCH{background:rgba(234,179,8,.16);color:#fde68a}.toneRISK{background:rgba(239,68,68,.16);color:#fca5a5}.toneCHASE{background:rgba(249,115,22,.16);color:#fdba74}.marketLine{margin-top:10px;color:#cbd5e1;font-size:14px;line-height:1.55}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}.metric{background:#1e293b;border-radius:14px;padding:9px;text-align:center}.metric b{display:block;font-size:15px}.metric span{display:block;margin-top:3px;font-size:11px;color:#94a3b8}
+.market{background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin-bottom:14px}.marketTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.marketStatus{font-size:20px;font-weight:800}.marketTone{font-size:12px;padding:6px 9px;border-radius:999px;white-space:nowrap}.toneENTRY{background:rgba(16,185,129,.16);color:#6ee7b7}.toneWATCH{background:rgba(234,179,8,.16);color:#fde68a}.toneRISK{background:rgba(239,68,68,.16);color:#fca5a5}.toneCHASE{background:rgba(249,115,22,.16);color:#fdba74}.marketLine{margin-top:10px;color:#cbd5e1;font-size:14px;line-height:1.55}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}.metric{background:#1e293b;border-radius:14px;padding:9px;text-align:center}.metric b{display:block;font-size:15px}.metric span{display:block;margin-top:3px;font-size:11px;color:#94a3b8}.avoidPanel{background:#020617;border:1px solid #1e293b;border-radius:18px;padding:12px;margin-top:12px}.avoidTitle{font-size:15px;font-weight:800}.avoidTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.avoidList{display:grid;gap:8px;margin-top:10px}.avoidItem{background:#0f172a;border-radius:14px;padding:10px}.avoidItem b{display:block;font-size:13px}.avoidItem span{display:block;margin-top:4px;color:#94a3b8;font-size:12px;line-height:1.45}.guideGrid{display:grid;gap:8px;margin-top:10px}
 .num{font-size:22px;font-weight:800}.label{font-size:12px;color:#94a3b8}
 .search{display:flex;gap:8px;margin-bottom:14px}
 input{flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:18px;color:#fff;padding:13px}
@@ -72,13 +72,14 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
 
 <script>
 const tabs=["포착","회피","시그널","놓친종목","섹터","프로그램","대량체결","눌림반등","기록"];
-let active="포착", stocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
+let active="포착", stocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, avoidanceBoard=null, avoidanceGuide=[], scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
 
 function grade(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
 function signalClass(code){return code==="RISK"?"red":code==="CHASE"?"orange":code==="ENTRY"?"green":"yellow"}
 function entryClass(code){return code==="FAVORABLE"?"green":code==="CHASE"?"orange":code==="AVOID"?"red":"yellow"}
 function renderChecklist(items){return (items||[]).map(i=>`<div class="check ${i.ok?'ok':'no'}"><span class="mark">${i.ok?'✓':'·'}</span><span>${i.label}</span></div>`).join("")}
-function renderAvoidance(items){return (items||[]).length?`<div class="reason"><span class="muted">매도·회피 위험 시그널</span><div class="checklist">${items.map(i=>`<div class="check ${i.severity==="WATCH"?"no":"ok"}"><span class="mark">${i.severity==="RISK"?"!":i.severity==="CHASE"?"!":"·"}</span><span>${i.label} · ${i.detail}</span></div>`).join("")}</div></div>`:""}
+function avoidanceClass(type){return type==="위험"||type==="RISK"?"red":type==="추격주의"||type==="CHASE"?"orange":type==="관찰"||type==="WATCH"?"yellow":"green"}
+function renderAvoidance(items){return (items||[]).length?`<div class="reason"><span class="muted">매도·회피 위험 시그널</span><div class="checklist">${items.map(i=>`<div class="check ${i.severity==="WATCH"?"no":"ok"}"><span class="mark">${i.severity==="RISK"?"!":i.severity==="CHASE"?"!":"·"}</span><span>${i.label} · ${i.detail}${i.guide?`<br><span class="muted">${i.guide}</span>`:""}</span></div>`).join("")}</div></div>`:""}
 function setTab(t){active=t;render()}
 document.getElementById("q").addEventListener("input",render);
 
@@ -101,13 +102,15 @@ async function loadData(){
     avoidanceStocks=data.avoidanceStocks||[];
     missedStocks=data.missedStocks||[];
     marketBoard=data.marketBoard||null;
+    avoidanceBoard=data.avoidanceBoard||null;
+    avoidanceGuide=data.avoidanceGuide||[];
     scanScope=data.scanScope||null;
 
     const cacheText=data.cache?.status==="fresh"?` · 캐시 ${data.cache.ageSeconds}초`:data.cache?.status==="stale"?` · 임시 ${data.cache.ageSeconds}초 전`:"";
     document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt+cacheText:"업데이트 완료";
     document.getElementById("topCount").textContent=stocks.filter(s=>s.signalCode==="ENTRY").length;
     document.getElementById("bigTradeCount").textContent=marketBoard?marketBoard.volumeIncreasing:stocks.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가")).length;
-    document.getElementById("sectorCount").textContent=avoidanceStocks.length||signalStocks.length;
+    document.getElementById("sectorCount").textContent=avoidanceBoard?(avoidanceBoard.counts.risk+avoidanceBoard.counts.chase):avoidanceStocks.length||signalStocks.length;
     render();
   }catch(e){
     c.innerHTML='<div class="notice">데이터를 불러오지 못했습니다.<br><br><span class="muted">'+e.message+'</span></div>';
@@ -135,7 +138,23 @@ function renderMarketBoard(){
       <div class="metric"><b>${marketBoard.ma20Rate}%</b><span>20일선 위</span></div>
       <div class="metric"><b>${marketBoard.recoveredMa20}</b><span>20일선 회복</span></div>
       <div class="metric"><b>${scanScope?scanScope.totalActualCount:marketBoard.validCharts}</b><span>스캔 범위</span></div>
-    </div>`;
+    </div>
+    ${avoidanceBoard?`
+    <div class="avoidPanel">
+      <div class="avoidTop">
+        <div>
+          <div class="muted">${avoidanceBoard.title}</div>
+          <div class="avoidTitle">${avoidanceBoard.summary}</div>
+        </div>
+        <span class="marketTone toneRISK">회피 판단</span>
+      </div>
+      <div class="metrics">
+        <div class="metric"><b>${avoidanceBoard.counts.risk}</b><span>위험</span></div>
+        <div class="metric"><b>${avoidanceBoard.counts.chase}</b><span>추격주의</span></div>
+        <div class="metric"><b>${avoidanceBoard.counts.watch}</b><span>관찰</span></div>
+        <div class="metric"><b>${avoidanceStocks.length}</b><span>회피 종목</span></div>
+      </div>
+    </div>`:""}`;
 }
 
 function renderTabs(){
@@ -167,6 +186,7 @@ function render(){
           <span class="badge ${signalClass(s.signalCode)}">${s.signalType}</span>
         </div>
         <div class="reason"><span class="muted">시그널 판단</span><p>${s.reason}</p></div>
+        ${s.entryGuide?`<div class="reason"><span class="muted">대응</span><p>${s.entryGuide}</p></div>`:""}
         <div class="info">✅ ${s.chart}</div>
       </div>`).join(""):'<div class="notice">위험 또는 추격주의 시그널이 없습니다.</div>';
     return;
@@ -174,15 +194,28 @@ function render(){
 
   if(active==="회피"){
     const arr=avoidanceStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q)||(s.reason||"").includes(q));
-    c.innerHTML=arr.length?arr.map(s=>`
+    const board=avoidanceBoard?`
+      <div class="card">
+        <div class="row">
+          <div><div class="name">${avoidanceBoard.title}</div><div class="muted">${avoidanceBoard.summary}</div></div>
+          <span class="badge red">회피 기준</span>
+        </div>
+        <div class="grid">
+          ${(avoidanceBoard.buckets||[]).map(b=>`<div class="box"><b>${b.label}</b><span>${b.description}</span></div>`).join("")}
+        </div>
+        <div class="guideGrid">
+          ${(avoidanceGuide||[]).map(g=>`<div class="avoidItem"><b><span class="badge ${signalClass(g.severity)}">${g.label}</span></b><span>${g.condition}<br>${g.meaning}<br>${g.action}</span></div>`).join("")}
+        </div>
+      </div>`:"";
+    c.innerHTML=board+(arr.length?arr.map(s=>`
       <div class="card">
         <div class="row">
           <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
-          <span class="badge ${s.avoidanceType==="위험"?"red":"orange"}">${s.avoidanceType}</span>
+          <span class="badge ${avoidanceClass(s.avoidanceType)}">${s.avoidanceType}</span>
         </div>
         <div class="info">✅ ${s.chart}</div>
         ${renderAvoidance(s.avoidanceSignals)}
-      </div>`).join(""):'<div class="notice">회피 위험 시그널 종목이 없습니다.</div>';
+      </div>`).join(""):'<div class="notice">회피 위험 시그널 종목이 없습니다.</div>');
     return;
   }
 

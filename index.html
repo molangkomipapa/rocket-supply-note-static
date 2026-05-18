@@ -6,40 +6,24 @@
 <title>로켓 수급노트</title>
 <style>
 body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-.wrap{max-width:430px;margin:0 auto;min-height:100vh;padding:22px 16px 90px}
-.top{display:flex;justify-content:space-between;align-items:center}
-.sub{color:#94a3b8;font-size:14px}.title{font-size:28px;font-weight:800}
-.icon{width:48px;height:48px;border-radius:18px;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:25px}
-.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin:16px 0;text-align:center}
-.market{background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin-bottom:14px}.marketTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.marketStatus{font-size:20px;font-weight:800}.marketTone{font-size:12px;padding:6px 9px;border-radius:999px;white-space:nowrap}.toneENTRY{background:rgba(16,185,129,.16);color:#6ee7b7}.toneWATCH{background:rgba(234,179,8,.16);color:#fde68a}.toneRISK{background:rgba(239,68,68,.16);color:#fca5a5}.toneCHASE{background:rgba(249,115,22,.16);color:#fdba74}.marketLine{margin-top:10px;color:#cbd5e1;font-size:14px;line-height:1.55}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}.metric{background:#1e293b;border-radius:14px;padding:9px;text-align:center}.metric b{display:block;font-size:15px}.metric span{display:block;margin-top:3px;font-size:11px;color:#94a3b8}.avoidPanel{background:#020617;border:1px solid #1e293b;border-radius:18px;padding:12px;margin-top:12px}.avoidTitle{font-size:15px;font-weight:800}.avoidTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.avoidList{display:grid;gap:8px;margin-top:10px}.avoidItem{background:#0f172a;border-radius:14px;padding:10px}.avoidItem b{display:block;font-size:13px}.avoidItem span{display:block;margin-top:4px;color:#94a3b8;font-size:12px;line-height:1.45}.guideGrid{display:grid;gap:8px;margin-top:10px}
-.num{font-size:22px;font-weight:800}.label{font-size:12px;color:#94a3b8}
-.search{display:flex;gap:8px;margin-bottom:14px}
-input{flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:18px;color:#fff;padding:13px}
-button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
-.tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px}
-.tab{background:#0f172a;color:#94a3b8;white-space:nowrap}.tab.active{background:#fff;color:#020617}
-.card,.notice,.sector{background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:16px;margin-bottom:14px}
-.row{display:flex;justify-content:space-between;gap:10px}.name{font-size:19px;font-weight:800}.code,.muted{color:#94a3b8;font-size:13px}
-.badges,.signals{display:flex;gap:8px;overflow-x:auto;margin:12px 0}
-.badge,.signal{font-size:12px;padding:7px 10px;border-radius:999px;white-space:nowrap}
-.blue{background:rgba(59,130,246,.16);color:#93c5fd}.green{background:rgba(16,185,129,.16);color:#6ee7b7}.orange{background:rgba(249,115,22,.16);color:#fdba74}
-.red{background:rgba(239,68,68,.16);color:#fca5a5}.yellow{background:rgba(234,179,8,.16);color:#fde68a}
-.signal{background:#1e293b;color:#e2e8f0}
-.bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin:8px 0 14px}.fill{height:100%;background:#fff}
-.position{margin:12px 0}.positionTop{display:flex;justify-content:space-between;color:#cbd5e1;font-size:13px;margin-bottom:7px}.positionBar{height:10px;background:#1e293b;border-radius:99px;overflow:hidden}.positionFill{height:100%;background:#93c5fd}
-.checklist{display:grid;gap:7px;margin-top:9px}.check{display:flex;align-items:center;gap:8px;color:#cbd5e1;font-size:13px}.mark{width:18px;height:18px;border-radius:50%;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8}.check.ok .mark{background:rgba(16,185,129,.16);color:#6ee7b7}.check.no{color:#64748b}
-.info{font-size:14px;color:#cbd5e1;line-height:1.8}.reason{background:#020617;border-radius:18px;padding:12px;margin:12px 0}.reason p{margin:5px 0 0;color:#cbd5e1;font-size:14px;line-height:1.55}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.box{background:#1e293b;border-radius:16px;padding:10px}.box b{display:block;font-size:12px;color:#94a3b8;margin-bottom:5px}.box span{font-size:12px}
-.bottom{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:calc(100% - 32px);max-width:430px;background:rgba(15,23,42,.96);border:1px solid #1e293b;border-radius:24px;display:flex;justify-content:space-around;padding:12px}
-.bottom button{background:none;color:#cbd5e1;font-size:12px}
-.small{font-size:12px;color:#94a3b8}
+.wrap{max-width:430px;margin:0 auto;min-height:100vh;padding:22px 16px 96px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:14px}.sub{color:#94a3b8;font-size:14px}.title{font-size:28px;font-weight:850;letter-spacing:0}.icon{width:48px;height:48px;border-radius:18px;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:24px}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:#0f172a;border:1px solid #1e293b;border-radius:24px;padding:14px;margin:16px 0;text-align:center}.num{font-size:22px;font-weight:850}.label{font-size:11px;color:#94a3b8;margin-top:3px}
+.panel,.card,.notice{background:#0f172a;border:1px solid #1e293b;border-radius:22px;padding:16px;margin-bottom:14px}.panelLine{color:#cbd5e1;font-size:14px;line-height:1.6}.small{font-size:12px;color:#94a3b8}
+.search{display:flex;gap:8px;margin-bottom:14px}input{flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:18px;color:#fff;padding:13px;font-size:15px}button{border:0;border-radius:16px;padding:10px 13px;font-weight:800}
+.tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px}.tab{background:#0f172a;color:#94a3b8;white-space:nowrap}.tab.active{background:#fff;color:#020617}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.name{font-size:20px;font-weight:850}.code,.muted{color:#94a3b8;font-size:13px}.badge{display:inline-flex;font-size:12px;padding:7px 10px;border-radius:999px;white-space:nowrap}.green{background:rgba(16,185,129,.16);color:#6ee7b7}.blue{background:rgba(59,130,246,.16);color:#93c5fd}.orange{background:rgba(249,115,22,.16);color:#fdba74}.yellow{background:rgba(234,179,8,.16);color:#fde68a}.red{background:rgba(239,68,68,.16);color:#fca5a5}.gray{background:#1e293b;color:#cbd5e1}
+.badges{display:flex;gap:8px;overflow-x:auto;margin:12px 0}.bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin:8px 0 14px}.fill{height:100%;background:#93c5fd}.reason{background:#020617;border-radius:18px;padding:12px;margin-top:12px}.reason p{margin:5px 0 0;color:#cbd5e1;font-size:14px;line-height:1.55}
+.checklist{display:grid;gap:7px;margin-top:9px}.check{display:flex;gap:8px;align-items:center;color:#cbd5e1;font-size:13px}.mark{width:18px;height:18px;border-radius:50%;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8}.check.ok .mark{background:rgba(16,185,129,.16);color:#6ee7b7}.check.no{color:#64748b}
+.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.metric{background:#1e293b;border-radius:14px;padding:10px}.metric b{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}.metric span{font-size:13px;color:#e2e8f0}
+.bottom{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:calc(100% - 32px);max-width:430px;background:rgba(15,23,42,.96);border:1px solid #1e293b;border-radius:24px;display:flex;justify-content:space-around;padding:12px}.bottom button{background:none;color:#cbd5e1;font-size:12px;padding:6px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
     <div>
-      <div class="sub">아이폰 수급포착 앱</div>
+      <div class="sub">시장 위치 판단 시스템</div>
       <div class="title">로켓 수급노트</div>
       <div class="small" id="updated">데이터 불러오는 중...</div>
     </div>
@@ -47,16 +31,17 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
   </div>
 
   <div class="summary">
-    <div><div class="num" id="topCount">-</div><div class="label">포착</div></div>
-    <div><div class="num" id="bigTradeCount">-</div><div class="label">당일급등</div></div>
-    <div><div class="num" id="sectorCount">-</div><div class="label">회피</div></div>
+    <div><div class="num" id="captureCount">-</div><div class="label">포착</div></div>
+    <div><div class="num" id="dayTradeCount">-</div><div class="label">급등</div></div>
+    <div><div class="num" id="supplyCount">-</div><div class="label">수급</div></div>
+    <div><div class="num" id="avoidanceCount">-</div><div class="label">회피</div></div>
   </div>
 
-  <div id="marketBoard" class="market"></div>
+  <div id="scanPanel" class="panel"></div>
 
   <div class="search">
     <input id="q" placeholder="종목명 또는 코드 검색" />
-    <button onclick="loadData()">새로고침</button>
+    <button onclick="loadData(true)">새로고침</button>
   </div>
 
   <div class="tabs" id="tabs"></div>
@@ -68,290 +53,188 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
   <button onclick="setTab('당일급등')">🔥<br>급등</button>
   <button onclick="setTab('외국기관수급')">💰<br>수급</button>
   <button onclick="setTab('회피')">⚠️<br>회피</button>
-  <button onclick="setTab('기록')">📝<br>기록</button>
+  <button onclick="setTab('개별검색')">🔎<br>검색</button>
 </div>
 
 <script>
-const tabs=["포착","당일급등","외국기관수급","회피","개별분석","기록"];
-let active="포착", stocks=[], dayTradeStocks=[], supplyStocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, rejectionBoard=null, avoidanceBoard=null, avoidanceGuide=[], scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
+const tabs=["포착","당일급등","외국기관수급","회피","개별검색"];
+let active="포착";
+let data={stocks:[],dayTradeStocks:[],supplyStocks:[],avoidanceStocks:[],scanScope:null,stats:null,summary:null};
+let individual=null;
 
-function grade(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
-function signalClass(code){return code==="RISK"?"red":code==="CHASE"?"orange":code==="ENTRY"?"green":"yellow"}
-function entryClass(code){return code==="FAVORABLE"?"green":code==="CHASE"?"orange":code==="AVOID"?"red":"yellow"}
-function renderChecklist(items){return (items||[]).map(i=>`<div class="check ${i.ok?'ok':'no'}"><span class="mark">${i.ok?'✓':'·'}</span><span>${i.label}</span></div>`).join("")}
-function avoidanceClass(type){return type==="위험"||type==="RISK"?"red":type==="추격주의"||type==="CHASE"?"orange":type==="관찰"||type==="WATCH"?"yellow":"green"}
-function renderAvoidance(items){return (items||[]).length?`<div class="reason"><span class="muted">매도·회피 위험 시그널</span><div class="checklist">${items.map(i=>`<div class="check ${i.severity==="WATCH"?"no":"ok"}"><span class="mark">${i.severity==="RISK"?"!":i.severity==="CHASE"?"!":"·"}</span><span>${i.label} · ${i.detail}${i.guide?`<br><span class="muted">${i.guide}</span>`:""}</span></div>`).join("")}</div></div>`:""}
-function setTab(t){active=t;render()}
+function setTab(tab){active=tab;render()}
 document.getElementById("q").addEventListener("input",render);
 
-function parseAnalyzeInput(text){
-  const digits=(text||"").match(/\d{6,8}/g)||[];
-  return {code:(digits.find(x=>x.length===6)||"").slice(0,6), date:(digits.find(x=>x.length===8)||"").slice(0,8)}
+function tone(card){
+  if(card.categoryCode==="avoidance") return card.score>=80?"red":card.score>=65?"orange":"yellow";
+  if(card.score>=80) return "green";
+  if(card.score>=65) return "blue";
+  return "yellow";
 }
 
-async function loadData(){
-  const c=document.getElementById("content");
-  c.innerHTML='<div class="notice">최신 데이터를 불러오는 중입니다.</div>';
-  try{
-    const res=await fetch("/api/stocks?ts="+Date.now());
-    const data=await res.json();
-    if(!data.success && data.message) throw new Error(data.message);
-
-    stocks=data.stocks||[];
-    dayTradeStocks=data.dayTradeStocks||[];
-    supplyStocks=data.supplyStocks||[];
-    sectors=data.sectors||[];
-    signalStocks=data.signalStocks||[];
-    avoidanceStocks=data.avoidanceStocks||[];
-    missedStocks=data.missedStocks||[];
-    marketBoard=data.marketBoard||null;
-    rejectionBoard=data.rejectionBoard||null;
-    avoidanceBoard=data.avoidanceBoard||null;
-    avoidanceGuide=data.avoidanceGuide||[];
-    scanScope=data.scanScope||null;
-
-    const cacheText=data.cache?.status==="fresh"?` · 캐시 ${data.cache.ageSeconds}초`:data.cache?.status==="stale"?` · 임시 ${data.cache.ageSeconds}초 전`:"";
-    document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt+cacheText:"업데이트 완료";
-    document.getElementById("topCount").textContent=stocks.length;
-    document.getElementById("bigTradeCount").textContent=dayTradeStocks.length;
-    document.getElementById("sectorCount").textContent=avoidanceStocks.length||signalStocks.length;
-    render();
-  }catch(e){
-    c.innerHTML='<div class="notice">데이터를 불러오지 못했습니다.<br><br><span class="muted">'+e.message+'</span></div>';
-    document.getElementById("updated").textContent="데이터 연결 필요";
-  }
+function renderChecklist(items){
+  return (items||[]).map(item=>`
+    <div class="check ${item.ok?'ok':'no'}">
+      <span class="mark">${item.ok?'✓':'·'}</span>
+      <span>${item.label}${item.points?` (${item.points}점)`:""}</span>
+    </div>`).join("");
 }
 
-function renderMarketBoard(){
-  const el=document.getElementById("marketBoard");
-  if(!marketBoard){
-    el.innerHTML='<div class="muted">시장 상태판을 준비하는 중입니다.</div>';
-    return;
-  }
-  el.innerHTML=`
-    <div class="marketTop">
-      <div>
-        <div class="muted">오늘 시장 상태${scanScope?` · 코스피/코스닥 상위 ${scanScope.topPercent}% · ${scanScope.marketDataName||"KRX+NXT 통합"}`:''}</div>
-        <div class="marketStatus">${marketBoard.status}</div>
-      </div>
-      <span class="marketTone tone${marketBoard.tone}">${marketBoard.action}</span>
-    </div>
-    <div class="marketLine">주의: ${marketBoard.caution}<br>포착: ${marketBoard.capture}</div>
-    <div class="metrics">
-      <div class="metric"><b>${marketBoard.risingRate}%</b><span>상승 비율</span></div>
-      <div class="metric"><b>${marketBoard.ma20Rate}%</b><span>20일선 위</span></div>
-      <div class="metric"><b>${marketBoard.recoveredMa20}</b><span>20일선 회복</span></div>
-      <div class="metric"><b>${scanScope?scanScope.totalActualCount:marketBoard.validCharts}</b><span>스캔 범위</span></div>
-    </div>
-    ${avoidanceBoard?`
-    <div class="avoidPanel">
-      <div class="avoidTop">
-        <div>
-          <div class="muted">${avoidanceBoard.title}</div>
-          <div class="avoidTitle">${avoidanceBoard.summary}</div>
-        </div>
-        <span class="marketTone toneRISK">회피 판단</span>
-      </div>
-      <div class="metrics">
-        <div class="metric"><b>${avoidanceBoard.counts.risk}</b><span>위험</span></div>
-        <div class="metric"><b>${avoidanceBoard.counts.chase}</b><span>추격주의</span></div>
-        <div class="metric"><b>${avoidanceBoard.counts.watch}</b><span>관찰</span></div>
-        <div class="metric"><b>${avoidanceStocks.length}</b><span>회피 종목</span></div>
-      </div>
-    </div>`:""}`;
-}
-
-function renderRejectionBoard(){
-  if(!rejectionBoard) return "";
-  const c=rejectionBoard.counts||{};
-  const breakdown=rejectionBoard.breakdown||[];
+function renderCard(card){
   return `
     <div class="card">
       <div class="row">
         <div>
-          <div class="name">${rejectionBoard.title||"왜 안 잡혔나"}</div>
-          <div class="muted">${rejectionBoard.summary||"탈락 원인을 집계하는 중입니다."}</div>
+          <div><span class="name">${card.name}</span> <span class="code">${card.code}</span></div>
+          <div class="muted">${card.price}원 · ${card.change} · ${card.market}</div>
         </div>
-        <span class="badge yellow">진단</span>
+        <span class="badge ${tone(card)}">${card.status}</span>
       </div>
-      <div class="grid">
-        <div class="box"><b>스캔</b><span>${c.scanned||0}개</span></div>
-        <div class="box"><b>통과</b><span>${c.passed||0}개</span></div>
-        <div class="box"><b>점수미달</b><span>${c.scoreMiss||0}개</span></div>
+      <div class="badges">
+        <span class="badge gray">${card.category}</span>
+        <span class="badge ${tone(card)}">${card.score}점</span>
       </div>
+      <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.score,100))}%"></div></div>
       <div class="metrics">
-        <div class="metric"><b>${c.noPriceData||0}</b><span>가격 없음</span></div>
-        <div class="metric"><b>${c.shortDailyData||0}</b><span>일봉 부족</span></div>
-        <div class="metric"><b>${c.excludedVolume||0}</b><span>거래량 제외</span></div>
-        <div class="metric"><b>${c.scanErrors||0}</b><span>스캔 오류</span></div>
+        <div class="metric"><b>20일 고점 대비</b><span>-${card.metrics.pullbackFromHigh20}%</span></div>
+        <div class="metric"><b>거래량</b><span>오늘 ${card.metrics.volRelToday20}배 / 5일 ${card.metrics.volRel5_20}배</span></div>
+        <div class="metric"><b>이평선</b><span>${card.metrics.ma20Position}</span></div>
+        <div class="metric"><b>수급</b><span>${card.metrics.program}</span></div>
       </div>
-      <div class="reason"><span class="muted">원인별 집계</span><div class="checklist">
-        ${breakdown.length?breakdown.map(x=>`<div class="check no"><span class="mark">${x.count}</span><span>${x.reason}</span></div>`).join(""):'<div class="muted">아직 집계된 탈락 원인이 없습니다.</div>'}
-      </div></div>
+      <div class="reason"><span class="muted">통과 조건</span><p>${card.reason}</p></div>
+      ${card.failed&&card.failed.length?`<div class="reason"><span class="muted">부족 조건</span><p>${card.failed.join(" · ")}</p></div>`:""}
+      <div class="reason"><span class="muted">점수 체크</span><div class="checklist">${renderChecklist(card.checks)}</div></div>
+    </div>`;
+}
+
+function filterCards(cards){
+  const q=document.getElementById("q").value.trim();
+  if(!q) return cards;
+  return cards.filter(card=>
+    (card.name||"").includes(q)||
+    (card.code||"").includes(q)||
+    (card.market||"").includes(q)||
+    (card.status||"").includes(q)
+  );
+}
+
+function currentCards(){
+  if(active==="포착") return data.stocks||[];
+  if(active==="당일급등") return data.dayTradeStocks||[];
+  if(active==="외국기관수급") return data.supplyStocks||[];
+  if(active==="회피") return data.avoidanceStocks||[];
+  return [];
+}
+
+function renderScanPanel(){
+  const panel=document.getElementById("scanPanel");
+  const scope=data.scanScope;
+  const stats=data.stats;
+  if(!scope||!stats){
+    panel.innerHTML='<div class="panelLine">스캔 정보를 준비하는 중입니다.</div>';
+    return;
+  }
+  panel.innerHTML=`
+    <div class="row">
+      <div>
+        <div class="muted">스캔 범위</div>
+        <div class="name">코스피/코스닥 상위 ${scope.topPercent}%</div>
+      </div>
+      <span class="badge gray">${scope.marketDataName}</span>
+    </div>
+    <div class="panelLine">
+      대상 ${scope.totalActualCount}개 · 분석 ${stats.analyzed}개 · 제외 ${stats.rejected}개
+      <br>이 화면은 네 가지 점수 분류만 표시합니다.
     </div>`;
 }
 
 function renderTabs(){
-  document.getElementById("tabs").innerHTML=tabs.map(t=>`<button class="tab ${active===t?'active':''}" onclick="setTab('${t}')">${t}</button>`).join("");
+  document.getElementById("tabs").innerHTML=tabs.map(tab=>
+    `<button class="tab ${active===tab?'active':''}" onclick="setTab('${tab}')">${tab}</button>`
+  ).join("");
+}
+
+function renderIndividual(){
+  const q=document.getElementById("q").value.trim();
+  const code=(q.match(/\d{6}/)||[""])[0];
+  const manual=individual?renderIndividualResult(individual):"";
+  document.getElementById("content").innerHTML=`
+    <div class="notice">
+      종목코드 6자리로 같은 조건식을 즉시 계산합니다.
+      <br><br><button onclick="analyzeCode()">${code||"종목"} 분석</button>
+    </div>
+    ${manual}`;
+}
+
+function renderIndividualResult(result){
+  if(!result.ok){
+    return `<div class="card"><div class="name">${result.code}</div><div class="reason"><span class="muted">${result.rejectReason}</span><p>${result.rejectDetail}</p></div></div>`;
+  }
+  return `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div><span class="name">${result.name}</span> <span class="code">${result.code}</span></div>
+          <div class="muted">${result.price}원 · ${result.change} · ${result.market}</div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><b>20일 고점 대비</b><span>-${result.metrics.pullbackFromHigh20}%</span></div>
+        <div class="metric"><b>거래량</b><span>오늘 ${result.metrics.volRelToday20}배 / 5일 ${result.metrics.volRel5_20}배</span></div>
+      </div>
+    </div>
+    ${(result.categories||[]).map(renderCard).join("")}`;
 }
 
 function render(){
   renderTabs();
-  renderMarketBoard();
-  const q=document.getElementById("q").value.trim();
-  const c=document.getElementById("content");
-
-  if(active==="섹터"){
-    c.innerHTML=sectors.length?sectors.map((s,i)=>`
-      <div class="sector">
-        <div class="row"><div><div class="name">${i+1}. ${s.name}</div><div class="muted">대표 종목: ${s.leaders}</div></div><b>${s.change}</b></div>
-        <div class="muted">섹터 강도 ${s.strength}점</div>
-        <div class="bar"><div class="fill" style="width:${s.strength}%"></div></div>
-      </div>`).join(""):'<div class="notice">섹터 데이터가 없습니다.</div>';
+  renderScanPanel();
+  if(active==="개별검색"){
+    renderIndividual();
     return;
   }
-
-  if(active==="당일급등"){
-    const arr=dayTradeStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q)||(s.reason||"").includes(q));
-    c.innerHTML=arr.length?arr.map(s=>`
-      <div class="card">
-        <div class="row">
-          <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
-          <span class="badge orange">${s.status}</span>
-        </div>
-        <div class="row muted"><span>당일급등 점수</span><span>${s.score}점</span></div>
-        <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
-        <div class="reason"><span class="muted">단타 판단</span><p>${s.reason}</p></div>
-        ${s.entryGuide?`<div class="reason"><span class="muted">대응</span><p>${s.entryGuide}</p></div>`:""}
-        <div class="info">✅ ${s.chart}</div>
-      </div>`).join(""):'<div class="notice">당일급등 조건 종목이 없습니다.</div>';
-    return;
-  }
-
-  if(active==="외국기관수급"){
-    const arr=supplyStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q)||(s.reason||"").includes(q));
-    c.innerHTML=arr.length?arr.map(s=>`
-      <div class="card">
-        <div class="row">
-          <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
-          <span class="badge green">${s.status}</span>
-        </div>
-        <div class="row muted"><span>수급 점수</span><span>${s.score}점</span></div>
-        <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
-        <div class="reason"><span class="muted">수급 판단</span><p>${s.reason}</p></div>
-        <div class="info">💰 ${s.supply||"수급 확인 대기"}<br>✅ ${s.chart}</div>
-        ${s.entryGuide?`<div class="reason"><span class="muted">대응</span><p>${s.entryGuide}</p></div>`:""}
-      </div>`).join(""):'<div class="notice">외국·기관 수급 조건 종목이 없습니다. 현재는 프로그램 수급 API 중심으로 판단합니다.</div>';
-    return;
-  }
-
-  if(active==="회피"){
-    const arr=avoidanceStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q)||(s.reason||"").includes(q));
-    const board=avoidanceBoard?`
-      <div class="card">
-        <div class="row">
-          <div><div class="name">${avoidanceBoard.title}</div><div class="muted">${avoidanceBoard.summary}</div></div>
-          <span class="badge red">회피 기준</span>
-        </div>
-        <div class="grid">
-          ${(avoidanceBoard.buckets||[]).map(b=>`<div class="box"><b>${b.label}</b><span>${b.description}</span></div>`).join("")}
-        </div>
-        <div class="guideGrid">
-          ${(avoidanceGuide||[]).map(g=>`<div class="avoidItem"><b><span class="badge ${signalClass(g.severity)}">${g.label}</span></b><span>${g.condition}<br>${g.meaning}<br>${g.action}</span></div>`).join("")}
-        </div>
-      </div>`:"";
-    c.innerHTML=board+(arr.length?arr.map(s=>`
-      <div class="card">
-        <div class="row">
-          <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
-          <span class="badge ${s.score>=80?'red':s.score>=65?'orange':'yellow'}">${s.status||s.avoidanceType}</span>
-        </div>
-        <div class="row muted"><span>회피 점수</span><span>${s.score}점</span></div>
-        <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
-        <div class="reason"><span class="muted">회피 판단</span><p>${s.reason}</p></div>
-        <div class="info">✅ ${s.chart}</div>
-        ${renderAvoidance(s.avoidanceSignals)}
-      </div>`).join(""):'<div class="notice">회피 위험 시그널 종목이 없습니다.</div>');
-    return;
-  }
-
-  if(active==="개별분석"){
-    const arr=missedStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q));
-    const parsed=parseAnalyzeInput(q);
-    const manual=manualMissedAnalysis?`
-      <div class="card">
-        <div class="row">
-          <div><div><span class="name">${manualMissedAnalysis.name}</span> <span class="code">${manualMissedAnalysis.code}</span></div><div class="muted">${manualMissedAnalysis.date} · ${manualMissedAnalysis.market}</div></div>
-          <span class="badge ${entryClass(manualMissedAnalysis.entryLabel==="진입 유리"?"FAVORABLE":"WATCH")}">${manualMissedAnalysis.verdict}</span>
-        </div>
-        <div class="badges"><span class="badge blue">${manualMissedAnalysis.strategyType||"전략 확인"}</span><span class="badge ${signalClass(manualMissedAnalysis.signalType==="추격주의"?"CHASE":manualMissedAnalysis.signalType==="위험"?"RISK":"ENTRY")}">${manualMissedAnalysis.signalType||"관찰"}</span><span class="badge green">${manualMissedAnalysis.entryLabel||"관찰만"}</span></div>
-        <div class="position"><div class="positionTop"><span>${manualMissedAnalysis.positionLabel||"위치 확인"}</span><span>${manualMissedAnalysis.positionPercent||0}%</span></div><div class="positionBar"><div class="positionFill" style="width:${manualMissedAnalysis.positionPercent||0}%"></div></div></div>
-        <div class="reason"><span class="muted">분석 결과</span><p>${manualMissedAnalysis.detail}</p><div class="checklist">${renderChecklist(manualMissedAnalysis.checks)}</div></div>
-        ${renderAvoidance(manualMissedAnalysis.avoidanceSignals)}
-        <div class="info">💰 ${manualMissedAnalysis.programFlow?.label||"프로그램 확인 대기"} · ${manualMissedAnalysis.programFlow?.detail||"데이터 없음"}</div>
-      </div>`:"";
-    c.innerHTML=`
-      ${renderRejectionBoard()}
-      <div class="notice">
-        종목코드 6자리${parsed.date?"와 날짜":""}로 즉시 분석할 수 있습니다.
-        <br><br><button onclick="analyzeMissed()">${parsed.code?parsed.code:"종목"} 분석</button>
-      </div>
-      ${manual}
-      ${arr.length?arr.map(s=>`
-      <div class="card">
-        <div class="row">
-          <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.market}</div></div>
-          <span class="badge yellow">${s.reason}</span>
-        </div>
-        <div class="reason"><span class="muted">왜 안 잡혔나</span><p>${s.detail}</p>${(s.checks||[]).length?`<div class="checklist">${renderChecklist(s.checks)}</div>`:""}</div>
-      </div>`).join(""):'<div class="notice">탈락 분석 샘플이 없습니다.</div>'}`;
-    return;
-  }
-
-  let arr=stocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.sector||"").includes(q));
-  if(active==="기록") arr=arr.filter(s=>saved[s.code]);
-
-  c.innerHTML=arr.length?arr.map(s=>`
-    <div class="card">
-      <div class="row">
-        <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.sector}</div></div>
-        <button onclick="toggle('${s.code}')">${saved[s.code]?'★':'☆'}</button>
-      </div>
-      <div class="badges"><span class="badge ${entryClass(s.entryCode)}">${s.entryLabel||"관찰만"}</span><span class="badge blue">${s.status}</span><span class="badge ${signalClass(s.signalCode)}">${s.signalType||"관찰"}</span><span class="badge green">${grade(s.score)}</span><span class="badge orange">${s.sectorRank}</span></div>
-      <div class="row muted"><span>수급포착 점수</span><span>${s.score}점</span></div>
-      <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
-      <div class="signals"><span class="signal">${s.programBuy}</span><span class="signal">${s.bigTrade}</span><span class="signal">${s.signalSummary||s.sectorRank}</span></div>
-      <div class="position"><div class="positionTop"><span>${s.positionLabel||"위치 확인"}</span><span>${s.positionBar||""} ${s.positionPercent||0}%</span></div><div class="positionBar"><div class="positionFill" style="width:${s.positionPercent||0}%"></div></div></div>
-      <div class="info">💰 ${s.supplyContinuity||"수급 관찰"} · ${s.supplyContinuityDetail||s.supply}<br>📊 ${s.volume}<br>✅ ${s.chart}<br>🔥 대량체결 금액 ${s.bigTradeAmount}</div>
-      <div class="reason"><span class="muted">${s.strategyType}</span><div class="checklist">${renderChecklist(s.reasonChecklist)}</div><p>${s.reason}</p></div>
-      <div class="grid"><div class="box"><b>매수 후보</b><span>${s.buy}</span></div><div class="box"><b>손절 기준</b><span>${s.stop}</span></div><div class="box"><b>목표 구간</b><span>${s.target}</span></div></div>
-      <div class="reason"><span class="muted">진입 판단</span><p>${s.entryGuide||s.action}</p></div>
-    </div>`).join(""):'<div class="notice">조건에 맞는 종목이 없습니다.</div>';
+  const cards=filterCards(currentCards());
+  document.getElementById("content").innerHTML=cards.length
+    ? cards.map(renderCard).join("")
+    : `<div class="notice">${active} 조건에 맞는 종목이 없습니다.</div>`;
 }
 
-async function analyzeMissed(){
-  const c=document.getElementById("content");
-  const parsed=parseAnalyzeInput(document.getElementById("q").value.trim());
-  if(!parsed.code){
-    c.innerHTML='<div class="notice">검색창에 종목코드 6자리를 입력해 주세요.</div>';
-    return;
-  }
-  c.innerHTML='<div class="notice">해당 종목의 탈락 조건을 분석하는 중입니다.</div>';
+async function loadData(force=false){
+  document.getElementById("content").innerHTML='<div class="notice">최신 데이터를 불러오는 중입니다.</div>';
   try{
-    const res=await fetch(`/api/stocks?analyzeCode=${parsed.code}${parsed.date?`&date=${parsed.date}`:""}&ts=${Date.now()}`);
-    const data=await res.json();
-    if(!data.success && data.message) throw new Error(data.message);
-    manualMissedAnalysis=data.analysis||null;
+    const res=await fetch(`/api/stocks?${force?"refresh=1&":""}ts=${Date.now()}`);
+    const json=await res.json();
+    if(!json.success) throw new Error(json.message||"데이터를 불러오지 못했습니다.");
+    data=json;
+    document.getElementById("captureCount").textContent=json.summary?.capture||0;
+    document.getElementById("dayTradeCount").textContent=json.summary?.dayTrade||0;
+    document.getElementById("supplyCount").textContent=json.summary?.supply||0;
+    document.getElementById("avoidanceCount").textContent=json.summary?.avoidance||0;
+    const cache=json.cache?.status==="fresh"?` · 캐시 ${json.cache.ageSeconds}초`:"";
+    document.getElementById("updated").textContent=`업데이트: ${json.updatedAt||""}${cache}`;
     render();
-  }catch(e){
-    c.innerHTML='<div class="notice">분석하지 못했습니다.<br><br><span class="muted">'+e.message+'</span></div>';
+  }catch(error){
+    document.getElementById("content").innerHTML=`<div class="notice">데이터를 불러오지 못했습니다.<br><br><span class="muted">${error.message}</span></div>`;
+    document.getElementById("updated").textContent="데이터 연결 필요";
   }
 }
 
-function toggle(code){
-  saved[code]=!saved[code];
-  localStorage.setItem("saved",JSON.stringify(saved));
-  render();
+async function analyzeCode(){
+  const code=(document.getElementById("q").value.trim().match(/\d{6}/)||[""])[0];
+  if(!code){
+    document.getElementById("content").innerHTML='<div class="notice">검색창에 종목코드 6자리를 입력해 주세요.</div>';
+    return;
+  }
+  document.getElementById("content").innerHTML='<div class="notice">개별 종목을 분석하는 중입니다.</div>';
+  try{
+    const res=await fetch(`/api/stocks?analyzeCode=${code}&ts=${Date.now()}`);
+    const json=await res.json();
+    if(!json.success) throw new Error(json.message||"분석 실패");
+    individual=json.analysis;
+    render();
+  }catch(error){
+    document.getElementById("content").innerHTML=`<div class="notice">분석하지 못했습니다.<br><br><span class="muted">${error.message}</span></div>`;
+  }
 }
 
 loadData();

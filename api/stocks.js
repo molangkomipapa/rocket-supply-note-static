@@ -28,11 +28,11 @@ export default async function handler(req, res) {
         8
       )
     );
-    const requestedTopPercent = Number(process.env.SCAN_MARKET_TOP_PERCENT || 30);
+    const requestedTopPercent = Number(process.env.SCAN_MARKET_TOP_PERCENT || 50);
     const marketTopPercent = Math.max(
       1,
       Math.min(
-        Number.isFinite(requestedTopPercent) ? requestedTopPercent : 30,
+        Number.isFinite(requestedTopPercent) ? requestedTopPercent : 50,
         100
       )
     );
@@ -57,14 +57,14 @@ export default async function handler(req, res) {
       ? requestedMarketDataCode
       : "UN";
     const requestedProgramTradeScanLimit = Number(
-      process.env.PROGRAM_TRADE_SCAN_LIMIT ?? 25
+      process.env.PROGRAM_TRADE_SCAN_LIMIT ?? 80
     );
     const programTradeScanLimit = Math.max(
       0,
       Math.min(
         Number.isFinite(requestedProgramTradeScanLimit)
           ? requestedProgramTradeScanLimit
-          : 25,
+          : 80,
         400
       )
     );
@@ -422,6 +422,8 @@ export default async function handler(req, res) {
     };
 
     const stocks = [];
+    const dayTradeStocks = [];
+    const supplyStocks = [];
     const signalStocks = [];
     const avoidanceStocks = [];
     const missedStocks = [];
@@ -517,6 +519,180 @@ export default async function handler(req, res) {
       if (score >= 65) return { status: "분할관심", action: "눌림 확인 후 1차" };
       if (score >= 50) return { status: "관찰후보", action: "후보 저장" };
       return { status: "제외", action: "미진입" };
+    }
+
+    function getScoreLabel(score, labels) {
+      if (score >= 80) return labels[0];
+      if (score >= 65) return labels[1];
+      if (score >= 50) return labels[2];
+      return labels[3];
+    }
+
+    function pushReason(reasons, condition, points, label) {
+      if (!condition) return 0;
+      reasons.push(label);
+      return points;
+    }
+
+    function scoreCapture(m) {
+      const reasons = [];
+      let score = 0;
+      const trendOk = m.ma20 > m.ma60 || m.price > m.ma60;
+      const pullbackOk = m.pullbackFromHigh20 >= 3 && m.pullbackFromHigh20 <= 15;
+      const lowHoldOk =
+        m.price >= m.recentBoxLow * 0.995 || m.price >= m.ma20 * 0.98;
+      const volatilityOk =
+        m.range5 <= m.range10 * 0.82 || m.avgRange3 <= m.avgRange5 * 0.9;
+      const volumeCompressionOk = m.volRel5_20 >= 0.5 && m.volRel5_20 <= 1.2;
+      const restartOk =
+        m.todayVolume > m.prevVolume ||
+        m.price > m.open ||
+        m.price >= m.prevClose ||
+        m.price >= m.ma5;
+      const noChaseRisk =
+        m.changeRate < 8 &&
+        m.threeDayChange < 15 &&
+        m.volRelToday20 < 4 &&
+        !m.longBearCandle;
+
+      score += pushReason(reasons, trendOk, 20, "추세 유지");
+      score += pushReason(reasons, pullbackOk, 15, "고점 대비 3~15% 눌림");
+      score += pushReason(reasons, lowHoldOk, 15, "저점 유지/20일선 지지");
+      score += pushReason(reasons, volatilityOk, 15, "변동성 압축");
+      score += pushReason(reasons, volumeCompressionOk, 15, "거래량 압축");
+      score += pushReason(reasons, restartOk, 15, "재출발 신호");
+      score += pushReason(reasons, noChaseRisk, 10, "추격 위험 없음");
+
+      return {
+        score: Math.min(score, 100),
+        strategyType: "포착",
+        strategyCode: "CAPTURE",
+        status: getScoreLabel(score, ["매수후보", "분할관심", "관찰후보", "제외"]),
+        reasons
+      };
+    }
+
+    function scoreDayTrade(m) {
+      const reasons = [];
+      let score = 0;
+      const volumeOk = m.volRelToday20 >= 2 && m.volRelToday20 <= 5;
+      const openHoldOk = m.price >= m.open;
+      const reboundOk = m.intradayRebound >= 1.5 || m.price >= m.prevClose;
+      const strengthProxyOk = m.price >= m.open && m.todayVolume > m.prevVolume;
+      const highHoldOk = m.pullbackFromTodayHigh <= 3;
+      const sectorProxyOk = m.price > m.ma20 && m.ma20 >= m.ma60 * 0.98;
+      const materialProxyOk = m.changeRate >= 3 || m.volRelToday20 >= 2.5;
+      const risk =
+        m.upperWickRatio > 0.45 ||
+        (m.volRelToday20 >= 5 && m.price < m.open) ||
+        m.longBearCandle ||
+        m.price < m.open * 0.995;
+
+      score += pushReason(reasons, volumeOk, 25, "거래량 20일 평균 2~5배");
+      score += pushReason(reasons, openHoldOk, 20, "시가 위 유지");
+      score += pushReason(reasons, reboundOk, 15, "장중 저점 회복");
+      score += pushReason(reasons, strengthProxyOk, 15, "매수 체결 우위 추정");
+      score += pushReason(reasons, highHoldOk, 10, "고점 대비 밀림 작음");
+      score += pushReason(reasons, sectorProxyOk, 10, "섹터/추세 동반 흐름 추정");
+      score += pushReason(reasons, materialProxyOk, 5, "재료/관심 지속 추정");
+      if (risk) score = Math.max(0, score - 25);
+
+      return {
+        score: Math.min(score, 100),
+        strategyType: "당일 급등",
+        strategyCode: "DAY_SURGE",
+        status: getScoreLabel(score, ["당일 단타 핵심", "단타 관심", "관찰", "제외"]),
+        reasons: risk ? [...reasons, "위험 패턴 감점"] : reasons
+      };
+    }
+
+    function scoreSupply(m) {
+      const reasons = [];
+      let score = 0;
+      const sustainedBuyOk =
+        m.programFlow?.threeDayPositive || m.programFlow?.positiveDays >= 3;
+      const priceHoldOk =
+        m.price >= m.ma20 * 0.98 &&
+        m.recentBoxLow >= m.low20 * 0.98 &&
+        !m.longBearCandle;
+      const volumeTrendOk = m.volBuild3 || m.volumeRecoveryDays >= 3 || m.volRel5_20 >= 1;
+      const maRecoveryOk = m.price >= m.ma20 || (m.ma20 > m.ma60 && m.ma20Slope > -0.3);
+      const reboundOk = m.intradayRebound >= 1 || m.price >= m.open || m.price >= m.prevClose;
+      const sectorProxyOk = m.price > m.ma60 && m.ma20Slope > -0.5;
+      const overheated =
+        m.threeDayChange >= 20 ||
+        (m.volRelToday20 >= 4 && m.upperWickRatio > 0.35) ||
+        m.longBearCandle;
+
+      score += pushReason(reasons, sustainedBuyOk, 30, "프로그램 지속 순매수");
+      score += pushReason(reasons, priceHoldOk, 20, "주가 유지력");
+      score += pushReason(reasons, volumeTrendOk, 15, "거래량 증가 지속성");
+      score += pushReason(reasons, maRecoveryOk, 15, "이평선 회복");
+      score += pushReason(reasons, reboundOk, 10, "눌림 후 회복력");
+      score += pushReason(reasons, sectorProxyOk, 10, "섹터 동반 흐름 추정");
+      if (overheated) score = Math.max(0, score - 20);
+
+      return {
+        score: Math.min(score, 100),
+        strategyType: "외국·기관 수급",
+        strategyCode: "SUPPLY",
+        status: getScoreLabel(score, ["강한 수급 관심", "수급 유입 진행", "관찰", "제외"]),
+        reasons: overheated ? [...reasons, "과열/음봉 위험 감점"] : reasons
+      };
+    }
+
+    function scoreAvoidance(m) {
+      const reasons = [];
+      let score = 0;
+      const ma20Break = m.prevClose < m.ma20 && m.price < m.ma20 * 0.99;
+      const volumeBear = m.price < m.open && m.volRelToday20 >= 1.5 && m.changeRate < 0;
+      const reboundFail = m.recentUpperWickCount >= 3;
+      const highDrop = m.pullbackFromHigh20 >= 12 || (m.prevClose >= m.high20 * 0.95 && m.changeRate <= -5);
+      const longBear = m.longBearCandle;
+      const supplyExit = m.programFlow?.available && m.programFlow.positiveDays === 0 && m.programFlow.totalNet < 0;
+      const sectorWeakProxy = m.price < m.ma60 || (m.ma20Slope < -0.5 && m.price < m.ma20);
+
+      score += pushReason(reasons, ma20Break, 20, "20일선 이탈 + 회복 실패");
+      score += pushReason(reasons, volumeBear, 20, "거래량 증가 음봉");
+      score += pushReason(reasons, reboundFail, 15, "반등 실패 반복");
+      score += pushReason(reasons, highDrop, 15, "고점 대비 급락 시작");
+      score += pushReason(reasons, longBear, 10, "장대음봉");
+      score += pushReason(reasons, supplyExit, 10, "프로그램 수급 이탈");
+      score += pushReason(reasons, sectorWeakProxy, 10, "섹터/추세 약화 추정");
+
+      return {
+        score: Math.min(score, 100),
+        strategyType: "회피",
+        strategyCode: "AVOIDANCE",
+        status: getScoreLabel(score, ["회피 강력 경고", "분할매도 고려", "주의 관찰", "정상"]),
+        reasons
+      };
+    }
+
+    function makeCategoryStock(item, m, scoreInfo, extra = {}) {
+      return {
+        name: item.name,
+        code: item.code,
+        market: item.market,
+        price: m.price.toLocaleString(),
+        change: `${m.changeRate > 0 ? "+" : ""}${m.changeRate.toFixed(2)}%`,
+        score: scoreInfo.score,
+        status: scoreInfo.status,
+        strategyType: scoreInfo.strategyType,
+        strategyCode: scoreInfo.strategyCode,
+        reason: scoreInfo.reasons.slice(0, 7).join(" · "),
+        reasonChecklist: scoreInfo.reasons.map((label) => ({ label, ok: true })),
+        chart: `20일선 ${m.price >= m.ma20 ? "상회" : "이탈"} · 고점대비 -${m.pullbackFromHigh20.toFixed(1)}% · 거래량 ${m.volRelToday20.toFixed(2)}배`,
+        metrics: {
+          volRelToday20: Number(m.volRelToday20.toFixed(2)),
+          volRel5_20: Number(m.volRel5_20.toFixed(2)),
+          pullbackFromHigh20: Number(m.pullbackFromHigh20.toFixed(1)),
+          pullbackFromTodayHigh: Number(m.pullbackFromTodayHigh.toFixed(1)),
+          range5: Number(m.range5.toFixed(1)),
+          range10: Number(m.range10.toFixed(1))
+        },
+        ...extra
+      };
     }
 
     function evaluateStrategies(m) {
@@ -987,18 +1163,18 @@ export default async function handler(req, res) {
     }
 
     function buildAvoidanceBoard() {
-      const riskCount = avoidanceStocks.filter((x) => x.avoidanceType === "위험").length;
-      const chaseCount = avoidanceStocks.filter((x) => x.avoidanceType === "추격주의").length;
-      const watchCount = avoidanceStocks.filter((x) => x.avoidanceType === "관찰").length;
-      const topSignals = avoidanceStocks.slice(0, 8).map((stock) => ({
+      const riskCount = signalStocks.filter((x) => x.score >= 80).length;
+      const chaseCount = signalStocks.filter((x) => x.score >= 65 && x.score < 80).length;
+      const watchCount = signalStocks.filter((x) => x.score >= 50 && x.score < 65).length;
+      const topSignals = signalStocks.slice(0, 8).map((stock) => ({
         name: stock.name,
         code: stock.code,
         market: stock.market,
         price: stock.price,
         change: stock.change,
-        avoidanceType: stock.avoidanceType,
+        avoidanceType: stock.status,
         reason: stock.reason,
-        guide: stock.avoidanceSignals[0]?.guide || stock.avoidanceSignals[0]?.detail || "",
+        guide: stock.entryGuide || "",
         chart: stock.chart
       }));
 
@@ -1169,6 +1345,7 @@ export default async function handler(req, res) {
       const high40 = Math.max(...recent40.map((d) => d.high));
       const low40 = Math.min(...recent40.map((d) => d.low));
       const prevClose = daily[1]?.close || 0;
+      const prevVolume = daily[1]?.volume || 0;
       const changeRate = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
       const threeDayChange =
         daily[2]?.close > 0 ? ((price - daily[2].close) / daily[2].close) * 100 : 0;
@@ -1206,6 +1383,14 @@ export default async function handler(req, res) {
       const recentCloseAboveMa20Days = recent5.filter(
         (d) => d.close >= ma20 * 0.98
       ).length;
+      const candleRange = (d) => (d.close > 0 ? ((d.high - d.low) / d.close) * 100 : 0);
+      const avgRange3 = avg(recent3.map(candleRange));
+      const avgRange5 = avg(recent5.map(candleRange));
+      const pullbackFromTodayHigh =
+        today.high > 0 ? ((today.high - price) / today.high) * 100 : 0;
+      const bodyRate = price > 0 ? ((price - open) / price) * 100 : 0;
+      const longBearCandle =
+        bodyRate <= -4 && today.volume >= avgVol20 * 1.2 && price <= low * 1.03;
       const bigCandle = recent10.find((d) => {
         const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
         return body >= 5 && d.volume >= avgVol20 * 1.5;
@@ -1221,6 +1406,7 @@ export default async function handler(req, res) {
         low,
         changeRate,
         todayVolume: today.volume,
+        prevVolume,
         ma5,
         ma20,
         ma60,
@@ -1230,6 +1416,8 @@ export default async function handler(req, res) {
         range5,
         range10,
         range40,
+        avgRange3,
+        avgRange5,
         boxLower,
         ma5Ma20Gap,
         ma20Ma60Gap,
@@ -1239,6 +1427,7 @@ export default async function handler(req, res) {
         volBuild3,
         intradayRebound,
         pullbackFromHigh20,
+        pullbackFromTodayHigh,
         upperWickRatio,
         recentUpperWickCount,
         recentBoxLow,
@@ -1249,6 +1438,8 @@ export default async function handler(req, res) {
         volCoolingAfterSurge: !!bigCandle && volRelToday20 <= 2.5,
         low20,
         high20,
+        bodyRate,
+        longBearCandle,
         threeDayChange,
         prevClose,
         programFlow
@@ -1404,7 +1595,7 @@ export default async function handler(req, res) {
         action,
         caution,
         tone,
-        capture: `바닥권 수급 후보 ${stats.bottomCandidates}개 / 추세 눌림 후보 ${stats.trendPullbackCandidates}개 / 회피 시그널 ${stats.avoidanceSignalCount}개`,
+        capture: `포착 ${stocks.length}개 / 당일급등 ${dayTradeStocks.length}개 / 수급 ${supplyStocks.length}개 / 회피 ${signalStocks.length}개`,
         scanned: stats.scanned,
         validCharts: stats.validCharts,
         risingRate: Number(risingRate.toFixed(1)),
@@ -1499,6 +1690,7 @@ export default async function handler(req, res) {
         const threeDayChange =
           daily[2]?.close > 0 ? ((price - daily[2].close) / daily[2].close) * 100 : 0;
         const prevClose = daily[1]?.close || 0;
+        const prevVolume = daily[1]?.volume || 0;
         const todayCandle = { open, high, low, close: price };
         const upperWickRatio = getUpperWickRatio(todayCandle);
         const recentUpperWickCount = recent5.filter(
@@ -1513,6 +1705,14 @@ export default async function handler(req, res) {
         const recentCloseAboveMa20Days = recent5.filter(
           (d) => d.close >= ma20 * 0.98
         ).length;
+        const candleRange = (d) => (d.close > 0 ? ((d.high - d.low) / d.close) * 100 : 0);
+        const avgRange3 = avg(recent3.map(candleRange));
+        const avgRange5 = avg(recent5.map(candleRange));
+        const pullbackFromTodayHigh =
+          high > 0 ? ((high - price) / high) * 100 : 0;
+        const bodyRate = price > 0 ? ((price - open) / price) * 100 : 0;
+        const longBearCandle =
+          bodyRate <= -4 && todayVolume >= avgVol20 * 1.2 && price <= low * 1.03;
         const bigCandle = recent10.find((d) => {
           const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
           return body >= 5 && d.volume >= avgVol20 * 1.5;
@@ -1528,6 +1728,7 @@ export default async function handler(req, res) {
           low,
           changeRate,
           todayVolume,
+          prevVolume,
           ma5,
           ma20,
           ma60,
@@ -1537,6 +1738,8 @@ export default async function handler(req, res) {
           range5,
           range10,
           range40,
+          avgRange3,
+          avgRange5,
           boxLower,
           ma5Ma20Gap,
           ma20Ma60Gap,
@@ -1546,6 +1749,7 @@ export default async function handler(req, res) {
           volBuild3,
           intradayRebound,
           pullbackFromHigh20,
+          pullbackFromTodayHigh,
           upperWickRatio,
           recentUpperWickCount,
           recentBoxLow,
@@ -1556,6 +1760,8 @@ export default async function handler(req, res) {
           volCoolingAfterSurge,
           low20,
           high20,
+          bodyRate,
+          longBearCandle,
           threeDayChange,
           prevClose
         };
@@ -1567,33 +1773,37 @@ export default async function handler(req, res) {
           buildAvoidanceSignals(baseMetrics)
         );
 
-        // 극단 제외
+        let captureBlocked = false;
+        let captureBlockReason = "";
         if (changeRate <= -7 || price < low20 * 0.94) {
           stats.excludedBreakdown += 1;
+          captureBlocked = true;
+          captureBlockReason = `급락/저점 이탈 조건 · 등락률 ${changeRate.toFixed(2)}% · 20일 저점 +${distLow20.toFixed(1)}%`;
           rememberMissed(
             item,
             "위험 제외",
-            `급락/저점 이탈 조건 · 등락률 ${changeRate.toFixed(2)}% · 20일 저점 +${distLow20.toFixed(1)}%`
+            captureBlockReason
           );
-          return null;
         }
         if ((changeRate >= 12 || threeDayChange >= 25) && !isHealthyTrend(baseMetrics)) {
           stats.excludedExtremeSurge += 1;
+          captureBlocked = true;
+          captureBlockReason = `단기 과열 조건 · 3일 ${threeDayChange.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`;
           rememberMissed(
             item,
             "추격 제외",
-            `단기 과열 조건 · 3일 ${threeDayChange.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`
+            captureBlockReason
           );
-          return null;
         }
         if (todayVolume < 20000) {
           stats.excludedVolume += 1;
+          captureBlocked = true;
+          captureBlockReason = `오늘 거래량 ${todayVolume.toLocaleString()}주로 기준 미달`;
           rememberMissed(
             item,
             "거래량 제외",
-            `오늘 거래량 ${todayVolume.toLocaleString()}주로 기준 미달`
+            captureBlockReason
           );
-          return null;
         }
 
         const programRows =
@@ -1609,97 +1819,60 @@ export default async function handler(req, res) {
         const avoidanceSignals = buildAvoidanceSignals(metrics);
         rememberAvoidanceStock(item, metrics, avoidanceSignals);
 
-        const strategyScores = evaluateStrategies(metrics);
-        const best = strategyScores[0];
+        const captureScore = scoreCapture(metrics);
+        const dayTradeScore = scoreDayTrade(metrics);
+        const supplyScore = scoreSupply(metrics);
+        const avoidanceScore = scoreAvoidance(metrics);
+        const positionLabel = getPositionLabel(boxLower);
+        const positionPercent = Math.max(0, Math.min(Math.round(boxLower * 100), 100));
+        const supplyContinuity = getSupplyContinuity(metrics);
 
-        let finalScore = best.score;
-
-        // 공통 추격/위험 페널티
-        const penalties = [];
-        if (changeRate >= 8) {
-          finalScore -= 12;
-          penalties.push("당일 급등 추격 주의");
-        }
-        if (threeDayChange >= 15) {
-          finalScore -= 10;
-          penalties.push("3일 상승률 과열");
-        }
-        if (volRelToday20 > 4) {
-          finalScore -= 10;
-          penalties.push("거래량 폭발 주의");
-        }
-        const riskAvoidanceCount = avoidanceSignals.filter((x) => x.severity === "RISK").length;
-        const chaseAvoidanceCount = avoidanceSignals.filter((x) => x.severity === "CHASE").length;
-        if (riskAvoidanceCount) {
-          finalScore -= riskAvoidanceCount * 12;
-          penalties.push(...avoidanceSignals.filter((x) => x.severity === "RISK").map((x) => x.label));
-        }
-        if (chaseAvoidanceCount) {
-          finalScore -= chaseAvoidanceCount * 8;
-          penalties.push(...avoidanceSignals.filter((x) => x.severity === "CHASE").map((x) => x.label));
-        }
-        if (programFlow.threeDayPositive) {
-          finalScore += 6;
-        } else if (programFlow.positiveDays >= 3) {
-          finalScore += 3;
-        }
-        if (sessionLabel.includes("NXT")) {
-          finalScore += 3;
+        if (dayTradeScore.score >= 50) {
+          dayTradeStocks.push(
+            makeCategoryStock(item, metrics, dayTradeScore, {
+              chart: `고점대비 -${pullbackFromTodayHigh.toFixed(1)}% · 시가 ${price >= open ? "상회" : "이탈"} · 거래량 ${volRelToday20.toFixed(2)}배`,
+              entryGuide: "시가 이탈/윗꼬리 확대 시 즉시 제외"
+            })
+          );
         }
 
-        finalScore = Math.max(0, Math.min(finalScore, 100));
-        const signal = classifySignal(metrics, finalScore, best.strategyCode);
-        rememberAvoidanceStock(item, metrics, avoidanceSignals, finalScore);
-        const hasAvoidanceWatch = avoidanceSignals.some((x) => x.severity === "WATCH");
-        if (
-          (signal.signalCode === "RISK" ||
-            signal.signalCode === "CHASE" ||
-            hasAvoidanceWatch) &&
-          !signalStocks.some((s) => s.code === item.code && s.signalCode === signal.signalCode)
-        ) {
-          const topAvoidance =
-            avoidanceSignals.find((x) => x.severity === "RISK") ||
-            avoidanceSignals.find((x) => x.severity === "CHASE") ||
-            avoidanceSignals.find((x) => x.severity === "WATCH");
-          signalStocks.push({
-            name: item.name,
-            code: item.code,
-            market: item.market,
-            price: price.toLocaleString(),
-            change: `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%`,
-            score: finalScore,
-            signalType: topAvoidance ? getSignalLabel(topAvoidance.severity) : signal.signalType,
-            signalCode: topAvoidance?.severity || signal.signalCode,
-            signalSummary: topAvoidance?.label || signal.signalSummary,
-            reason: topAvoidance?.detail || signal.signalSummary,
-            entryGuide: topAvoidance?.guide || "",
-            chart: `20일선 ${price >= ma20 ? "상회" : "이탈"} · 고점대비 -${pullbackFromHigh20.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`
-          });
+        if (supplyScore.score >= 50) {
+          supplyStocks.push(
+            makeCategoryStock(item, metrics, supplyScore, {
+              supply: programFlow.available
+                ? `${programFlow.label} · ${programFlow.detail}`
+                : "외국인·기관 직접 수급 API 연결 전, 프로그램 수급으로 대체 판단",
+              entryGuide: "급등보다 20일선 유지와 수급 지속성 확인"
+            })
+          );
         }
 
-        if (finalScore < 50) {
+        if (avoidanceScore.score >= 50) {
+          signalStocks.push(
+            makeCategoryStock(item, metrics, avoidanceScore, {
+              signalType: avoidanceScore.status,
+              signalCode: "RISK",
+              signalSummary: avoidanceScore.reasons.slice(0, 3).join(" · "),
+              entryGuide: "회복 확인 전 신규 진입 금지"
+            })
+          );
+        }
+
+        if (captureBlocked || captureScore.score < 50) {
           stats.scoreMiss += 1;
           rememberMissed(
             item,
-            "점수 미달",
-            `${best.strategyType} ${finalScore}점 · ${best.reasons.slice(0, 3).join(" · ") || "핵심 조건 부족"}`
+            captureBlocked ? "조건 제외" : "점수 미달",
+            captureBlocked
+              ? captureBlockReason
+              : `${captureScore.strategyType} ${captureScore.score}점 · ${captureScore.reasons.slice(0, 3).join(" · ") || "핵심 조건 부족"}`
           );
           return null;
         }
 
-        const g = grade(finalScore);
-        const entryDecision = getEntryDecision(
-          signal,
-          metrics,
-          finalScore,
-          best.strategyCode
-        );
-        const positionLabel = getPositionLabel(boxLower);
-        const positionPercent = Math.max(0, Math.min(Math.round(boxLower * 100), 100));
-        const supplyContinuity = getSupplyContinuity(metrics);
         stats.passed += 1;
-        if (signal.signalCode === "ENTRY") stats.entrySignals += 1;
-        if (signal.signalCode === "WATCH") stats.watchSignals += 1;
+        if (captureScore.score >= 65) stats.entrySignals += 1;
+        if (captureScore.score >= 50 && captureScore.score < 65) stats.watchSignals += 1;
 
         return {
           name: item.name,
@@ -1710,22 +1883,22 @@ export default async function handler(req, res) {
           price: price.toLocaleString(),
           change: `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%`,
 
-          score: finalScore,
-          status: g.status,
-          action: g.action,
-          signalType: signal.signalType,
-          signalCode: signal.signalCode,
-          signalSummary: signal.signalSummary,
+          score: captureScore.score,
+          status: captureScore.status,
+          action: captureScore.status === "매수후보" ? "1차 분할 가능" : "조건 확인 후 분할",
+          signalType: captureScore.status,
+          signalCode: captureScore.score >= 65 ? "ENTRY" : "WATCH",
+          signalSummary: captureScore.reasons.slice(0, 3).join(" · "),
           avoidanceSignals,
-          entryLabel: entryDecision.entryLabel,
-          entryCode: entryDecision.entryCode,
-          entryGuide: entryDecision.entryGuide,
+          entryLabel: captureScore.status,
+          entryCode: captureScore.score >= 80 ? "FAVORABLE" : "WATCH",
+          entryGuide: "분할 매수 기준: 저점 유지와 재출발 신호 지속 확인",
 
-          strategyType: best.strategyType,
-          strategyCode: best.strategyCode,
-          sectorRank: best.strategyType,
+          strategyType: captureScore.strategyType,
+          strategyCode: captureScore.strategyCode,
+          sectorRank: captureScore.strategyType,
 
-          programBuy: `${sessionLabel} / ${best.strategyType}`,
+          programBuy: `${sessionLabel} / ${captureScore.strategyType}`,
           bigTrade:
             volBuild3 || volRel5_20 >= 1
               ? "거래량 회복 포착"
@@ -1744,29 +1917,14 @@ export default async function handler(req, res) {
           positionPercent,
           positionBar: makePositionBar(boxLower),
 
-          reason: [...best.reasons, ...penalties].slice(0, 7).join(" · "),
-          reasonChecklist: buildReasonChecklist(best, metrics),
+          reason: captureScore.reasons.slice(0, 7).join(" · "),
+          reasonChecklist: captureScore.reasons.map((label) => ({ label, ok: true })),
 
-          buy:
-            best.strategyCode === "BOTTOM"
-              ? "1차 25% / 저점 이탈 없을 때 추가"
-              : best.strategyCode === "TREND_PULLBACK"
-              ? "20일선 눌림 확인 후 분할"
-              : best.strategyCode === "PRE_BREAKOUT_COMPRESSION"
-              ? "박스 상단 돌파 확인 후 1차 분할"
-              : "급등 후 거래량 감소·가격 유지 확인 후 분할",
+          buy: "1차 분할 / 저점 유지 시 추가",
 
-          stop:
-            best.strategyCode === "TREND_PULLBACK"
-              ? "20일선 이탈 + 거래량 증가 음봉"
-              : best.strategyCode === "PRE_BREAKOUT_COMPRESSION"
-              ? "박스 하단 이탈 또는 20일선 이탈"
-              : "20일 저점 이탈 또는 수급 악화",
+          stop: "최근 5~10일 저점 이탈 또는 20일선 이탈",
 
-          target:
-            best.strategyCode === "PRE_BREAKOUT_COMPRESSION"
-              ? "첫 장대양봉 / +5~10%"
-              : "전고점 회복 / +5~8%"
+          target: "전고점 회복 / +5~10%"
         };
       } catch (e) {
         return null;
@@ -1798,18 +1956,13 @@ export default async function handler(req, res) {
       stocks.push(...scannedStocks.filter(Boolean));
 
       stocks.sort((a, b) => b.score - a.score);
-      signalStocks.sort((a, b) => {
-        const weight = { RISK: 3, CHASE: 2, WATCH: 1 };
-        return (weight[b.signalCode] || 0) - (weight[a.signalCode] || 0) || b.score - a.score;
-      });
-      avoidanceStocks.sort((a, b) => {
-        const weight = { 위험: 3, 추격주의: 2, 관찰: 1 };
-        return (weight[b.avoidanceType] || 0) - (weight[a.avoidanceType] || 0) || b.score - a.score;
-      });
+      dayTradeStocks.sort((a, b) => b.score - a.score);
+      supplyStocks.sort((a, b) => b.score - a.score);
+      signalStocks.sort((a, b) => b.score - a.score);
 
       const payload = {
         success: true,
-        mode: "3전략 통합 수급 스윙 스캐너",
+        mode: "4분류 시장 위치 판단 시스템",
         session: sessionLabel,
         scanScope,
         scanned: stats.scanned,
@@ -1821,8 +1974,10 @@ export default async function handler(req, res) {
           timeZone: "Asia/Seoul"
         }),
         stocks: stocks.slice(0, 40),
+        dayTradeStocks: dayTradeStocks.slice(0, 40),
+        supplyStocks: supplyStocks.slice(0, 40),
         signalStocks: signalStocks.slice(0, 30),
-        avoidanceStocks: avoidanceStocks.slice(0, 40),
+        avoidanceStocks: signalStocks.slice(0, 40),
         missedStocks: missedStocks.slice(0, 30),
         sectors: []
       };

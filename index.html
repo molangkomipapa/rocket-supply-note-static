@@ -47,15 +47,15 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
   </div>
 
   <div class="summary">
-    <div><div class="num" id="topCount">-</div><div class="label">진입 관심</div></div>
-    <div><div class="num" id="bigTradeCount">-</div><div class="label">거래량 증가</div></div>
-    <div><div class="num" id="sectorCount">-</div><div class="label">위험/추격</div></div>
+    <div><div class="num" id="topCount">-</div><div class="label">포착</div></div>
+    <div><div class="num" id="bigTradeCount">-</div><div class="label">당일급등</div></div>
+    <div><div class="num" id="sectorCount">-</div><div class="label">회피</div></div>
   </div>
 
   <div id="marketBoard" class="market"></div>
 
   <div class="search">
-    <input id="q" placeholder="종목명, 코드, 섹터 검색" />
+    <input id="q" placeholder="종목명 또는 코드 검색" />
     <button onclick="loadData()">새로고침</button>
   </div>
 
@@ -65,14 +65,15 @@ button{border:0;border-radius:16px;padding:10px 13px;font-weight:700}
 
 <div class="bottom">
   <button onclick="setTab('포착')">📡<br>포착</button>
-  <button onclick="setTab('섹터')">📊<br>섹터</button>
-  <button onclick="setTab('대량체결')">🔥<br>체결</button>
+  <button onclick="setTab('당일급등')">🔥<br>급등</button>
+  <button onclick="setTab('외국기관수급')">💰<br>수급</button>
+  <button onclick="setTab('회피')">⚠️<br>회피</button>
   <button onclick="setTab('기록')">📝<br>기록</button>
 </div>
 
 <script>
-const tabs=["포착","회피","시그널","놓친종목","섹터","프로그램","대량체결","눌림반등","기록"];
-let active="포착", stocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, avoidanceBoard=null, avoidanceGuide=[], scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
+const tabs=["포착","당일급등","외국기관수급","회피","개별분석","기록"];
+let active="포착", stocks=[], dayTradeStocks=[], supplyStocks=[], sectors=[], signalStocks=[], avoidanceStocks=[], missedStocks=[], manualMissedAnalysis=null, marketBoard=null, avoidanceBoard=null, avoidanceGuide=[], scanScope=null, saved=JSON.parse(localStorage.getItem("saved")||"{}");
 
 function grade(s){return s>=85?"최우선":s>=75?"강관심":s>=60?"관심":s>=45?"관찰":"제외"}
 function signalClass(code){return code==="RISK"?"red":code==="CHASE"?"orange":code==="ENTRY"?"green":"yellow"}
@@ -97,6 +98,8 @@ async function loadData(){
     if(!data.success && data.message) throw new Error(data.message);
 
     stocks=data.stocks||[];
+    dayTradeStocks=data.dayTradeStocks||[];
+    supplyStocks=data.supplyStocks||[];
     sectors=data.sectors||[];
     signalStocks=data.signalStocks||[];
     avoidanceStocks=data.avoidanceStocks||[];
@@ -108,9 +111,9 @@ async function loadData(){
 
     const cacheText=data.cache?.status==="fresh"?` · 캐시 ${data.cache.ageSeconds}초`:data.cache?.status==="stale"?` · 임시 ${data.cache.ageSeconds}초 전`:"";
     document.getElementById("updated").textContent=data.updatedAt?"업데이트: "+data.updatedAt+cacheText:"업데이트 완료";
-    document.getElementById("topCount").textContent=stocks.filter(s=>s.signalCode==="ENTRY").length;
-    document.getElementById("bigTradeCount").textContent=marketBoard?marketBoard.volumeIncreasing:stocks.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가")).length;
-    document.getElementById("sectorCount").textContent=avoidanceBoard?(avoidanceBoard.counts.risk+avoidanceBoard.counts.chase):avoidanceStocks.length||signalStocks.length;
+    document.getElementById("topCount").textContent=stocks.length;
+    document.getElementById("bigTradeCount").textContent=dayTradeStocks.length;
+    document.getElementById("sectorCount").textContent=avoidanceStocks.length||signalStocks.length;
     render();
   }catch(e){
     c.innerHTML='<div class="notice">데이터를 불러오지 못했습니다.<br><br><span class="muted">'+e.message+'</span></div>';
@@ -177,18 +180,37 @@ function render(){
     return;
   }
 
-  if(active==="시그널"){
-    const arr=signalStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q));
+  if(active==="당일급등"){
+    const arr=dayTradeStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q)||(s.reason||"").includes(q));
     c.innerHTML=arr.length?arr.map(s=>`
       <div class="card">
         <div class="row">
           <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
-          <span class="badge ${signalClass(s.signalCode)}">${s.signalType}</span>
+          <span class="badge orange">${s.status}</span>
         </div>
-        <div class="reason"><span class="muted">시그널 판단</span><p>${s.reason}</p></div>
+        <div class="row muted"><span>당일급등 점수</span><span>${s.score}점</span></div>
+        <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
+        <div class="reason"><span class="muted">단타 판단</span><p>${s.reason}</p></div>
         ${s.entryGuide?`<div class="reason"><span class="muted">대응</span><p>${s.entryGuide}</p></div>`:""}
         <div class="info">✅ ${s.chart}</div>
-      </div>`).join(""):'<div class="notice">위험 또는 추격주의 시그널이 없습니다.</div>';
+      </div>`).join(""):'<div class="notice">당일급등 조건 종목이 없습니다.</div>';
+    return;
+  }
+
+  if(active==="외국기관수급"){
+    const arr=supplyStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q)||(s.reason||"").includes(q));
+    c.innerHTML=arr.length?arr.map(s=>`
+      <div class="card">
+        <div class="row">
+          <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
+          <span class="badge green">${s.status}</span>
+        </div>
+        <div class="row muted"><span>수급 점수</span><span>${s.score}점</span></div>
+        <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
+        <div class="reason"><span class="muted">수급 판단</span><p>${s.reason}</p></div>
+        <div class="info">💰 ${s.supply||"수급 확인 대기"}<br>✅ ${s.chart}</div>
+        ${s.entryGuide?`<div class="reason"><span class="muted">대응</span><p>${s.entryGuide}</p></div>`:""}
+      </div>`).join(""):'<div class="notice">외국·기관 수급 조건 종목이 없습니다. 현재는 프로그램 수급 API 중심으로 판단합니다.</div>';
     return;
   }
 
@@ -211,15 +233,18 @@ function render(){
       <div class="card">
         <div class="row">
           <div><div><span class="name">${s.name}</span> <span class="code">${s.code}</span></div><div class="muted">${s.price}원 · ${s.change} · ${s.market}</div></div>
-          <span class="badge ${avoidanceClass(s.avoidanceType)}">${s.avoidanceType}</span>
+          <span class="badge ${s.score>=80?'red':s.score>=65?'orange':'yellow'}">${s.status||s.avoidanceType}</span>
         </div>
+        <div class="row muted"><span>회피 점수</span><span>${s.score}점</span></div>
+        <div class="bar"><div class="fill" style="width:${s.score}%"></div></div>
+        <div class="reason"><span class="muted">회피 판단</span><p>${s.reason}</p></div>
         <div class="info">✅ ${s.chart}</div>
         ${renderAvoidance(s.avoidanceSignals)}
       </div>`).join(""):'<div class="notice">회피 위험 시그널 종목이 없습니다.</div>');
     return;
   }
 
-  if(active==="놓친종목"){
+  if(active==="개별분석"){
     const arr=missedStocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.market||"").includes(q));
     const parsed=parseAnalyzeInput(q);
     const manual=manualMissedAnalysis?`
@@ -252,9 +277,6 @@ function render(){
   }
 
   let arr=stocks.filter(s=>(s.name||"").includes(q)||(s.code||"").includes(q)||(s.sector||"").includes(q));
-  if(active==="프로그램") arr=arr.filter(s=>(s.supply||"").includes("순매수")||(s.supplyContinuity||"").includes("프로그램"));
-  if(active==="대량체결") arr=arr.filter(s=>(s.bigTrade||"").includes("포착")||(s.bigTrade||"").includes("증가"));
-  if(active==="눌림반등") arr=arr.filter(s=>(s.status||"").includes("눌림")||(s.status||"").includes("반등")||(s.strategyType||"").includes("압축")||(s.strategyType||"").includes("돌파"));
   if(active==="기록") arr=arr.filter(s=>saved[s.code]);
 
   c.innerHTML=arr.length?arr.map(s=>`

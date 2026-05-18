@@ -256,6 +256,7 @@ export default async function handler(req, res) {
 
     const stocks = [];
     const signalStocks = [];
+    const missedStocks = [];
     const stats = {
       scanned: 0,
       passed: 0,
@@ -277,6 +278,17 @@ export default async function handler(req, res) {
       entrySignals: 0,
       watchSignals: 0
     };
+
+    function rememberMissed(item, reason, detail) {
+      if (missedStocks.length >= 40) return;
+      missedStocks.push({
+        name: item.name,
+        code: item.code,
+        market: item.market,
+        reason,
+        detail
+      });
+    }
 
     function grade(score) {
       if (score >= 80) return { status: "매수후보", action: "1차 분할 가능" };
@@ -411,8 +423,21 @@ export default async function handler(req, res) {
       return results.sort((a, b) => b.score - a.score);
     }
 
+    function isHealthyTrend(m) {
+      return (
+        m.price > m.ma20 &&
+        m.ma20 > m.ma60 &&
+        m.ma20Slope > 0 &&
+        m.pullbackFromHigh20 >= 3 &&
+        m.pullbackFromHigh20 <= 18 &&
+        m.volRelToday20 <= 3.2 &&
+        m.threeDayChange <= 18
+      );
+    }
+
     function classifySignal(m, finalScore = 0, bestStrategyCode = "") {
       const reasons = [];
+      const healthyTrend = isHealthyTrend(m);
       const isRisk =
         m.changeRate <= -5 ||
         m.price < m.ma20 * 0.97 ||
@@ -420,10 +445,11 @@ export default async function handler(req, res) {
         (m.changeRate < 0 && m.volRelToday20 >= 2.3 && m.price < m.open) ||
         m.pullbackFromHigh20 >= 24;
       const isChase =
-        m.changeRate >= 8 ||
-        m.threeDayChange >= 15 ||
-        m.volRelToday20 >= 4 ||
-        (m.changeRate >= 5 && m.price >= m.high20 * 0.98);
+        !healthyTrend &&
+        (m.changeRate >= 8 ||
+          m.threeDayChange >= 15 ||
+          m.volRelToday20 >= 4 ||
+          (m.changeRate >= 5 && m.price >= m.high20 * 0.98));
 
       if (isRisk) {
         if (m.changeRate <= -5) reasons.push("당일 급락");
@@ -464,7 +490,9 @@ export default async function handler(req, res) {
         return {
           signalType: "진입 관심",
           signalCode: "ENTRY",
-          signalSummary: "저점 유지 · 거래량 회복 · 구조 양호"
+          signalSummary: healthyTrend
+            ? "강세 추세 · 과열 진정 · 20일선 위"
+            : "저점 유지 · 거래량 회복 · 구조 양호"
         };
       }
 
@@ -472,6 +500,95 @@ export default async function handler(req, res) {
         signalType: "관찰",
         signalCode: "WATCH",
         signalSummary: "구조 확인 · 수급 보강 대기"
+      };
+    }
+
+    function getEntryDecision(signal, m, finalScore, bestStrategyCode) {
+      if (signal.signalCode === "RISK") {
+        return {
+          entryLabel: "위험 회피",
+          entryCode: "AVOID",
+          entryGuide: "20일선 회복 또는 거래량 둔화 전까지 보류"
+        };
+      }
+      if (signal.signalCode === "CHASE") {
+        return {
+          entryLabel: "추격주의",
+          entryCode: "CHASE",
+          entryGuide: "당일 급등 추격보다 눌림 재확인"
+        };
+      }
+      if (
+        finalScore >= 72 &&
+        m.price >= m.ma20 * 0.97 &&
+        m.volRelToday20 <= 2.8 &&
+        (bestStrategyCode === "BOTTOM" || isHealthyTrend(m))
+      ) {
+        return {
+          entryLabel: "진입 유리",
+          entryCode: "FAVORABLE",
+          entryGuide: "1차 분할 후 저점 이탈 여부 확인"
+        };
+      }
+      return {
+        entryLabel: "관찰만",
+        entryCode: "WATCH",
+        entryGuide: "수급 지속 또는 눌림 지지 확인 후 접근"
+      };
+    }
+
+    function getPositionLabel(boxLower) {
+      if (boxLower <= 0.35) return "저점권";
+      if (boxLower <= 0.7) return "중단권";
+      return "고점권";
+    }
+
+    function makePositionBar(boxLower) {
+      const percent = Math.max(0, Math.min(Math.round(boxLower * 100), 100));
+      const filled = Math.max(1, Math.min(Math.round(percent / 10), 10));
+      return `${"█".repeat(filled)}${"░".repeat(10 - filled)}`;
+    }
+
+    function buildReasonChecklist(strategy, m) {
+      const items = [];
+
+      if (strategy.strategyCode === "BOTTOM") {
+        items.push({ label: "20일 저점 부근", ok: m.distLow20 <= 8 });
+        items.push({ label: "3일 거래량 증가", ok: m.volBuild3 });
+        items.push({ label: "장중 저점 회복", ok: m.intradayRebound >= 1 });
+        items.push({ label: "20일선 수렴 중", ok: m.price >= m.ma20 * 0.96 && m.price <= m.ma20 * 1.08 });
+      } else if (strategy.strategyCode === "TREND_PULLBACK") {
+        items.push({ label: "20일선 위 추세 유지", ok: m.price > m.ma20 });
+        items.push({ label: "20일선 상승", ok: m.ma20Slope > 0 });
+        items.push({ label: "고점 대비 건강한 눌림", ok: m.pullbackFromHigh20 >= 4 && m.pullbackFromHigh20 <= 18 });
+        items.push({ label: "거래량 과열 아님", ok: m.volRelToday20 <= 2.5 });
+      } else {
+        items.push({ label: "최근 강한 양봉 이후 유지", ok: m.afterBigCandleHold });
+        items.push({ label: "거래량 진정", ok: m.volCoolingAfterSurge });
+        items.push({ label: "5일·20일선 지지권", ok: m.price >= m.ma5 * 0.96 && m.price >= m.ma20 * 0.94 });
+        items.push({ label: "재추격 구간 아님", ok: m.changeRate <= 6 });
+      }
+
+      return items;
+    }
+
+    function getSupplyContinuity(m) {
+      const details = [];
+      if (m.volBuild3) details.push("3일 연속 거래량 증가");
+      if (m.volRel5_20 >= 1) details.push("5일 평균 거래량 회복");
+      if (m.volumeRecoveryDays >= 3) {
+        details.push(`최근 5일 중 ${m.volumeRecoveryDays}일 거래량 우위`);
+      }
+      if (!details.length) details.push("오늘 거래량 중심, 지속성 추가 확인");
+
+      return {
+        label:
+          m.volBuild3 || m.volumeRecoveryDays >= 3
+            ? "수급 지속"
+            : m.volRel5_20 >= 1
+            ? "수급 회복"
+            : "수급 관찰",
+        detail: details.slice(0, 3).join(" · ")
       };
     }
 
@@ -623,6 +740,9 @@ export default async function handler(req, res) {
 
         const volRel5_20 = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
         const volRelToday20 = avgVol20 > 0 ? todayVolume / avgVol20 : 1;
+        const volumeRecoveryDays = recent5.filter(
+          (d) => avgVol20 > 0 && d.volume >= avgVol20
+        ).length;
         const volBuild3 =
           recent3.length === 3 &&
           recent3[0].volume >= recent3[1].volume &&
@@ -650,6 +770,7 @@ export default async function handler(req, res) {
           boxLower,
           volRel5_20,
           volRelToday20,
+          volumeRecoveryDays,
           volBuild3,
           intradayRebound,
           pullbackFromHigh20,
@@ -684,14 +805,29 @@ export default async function handler(req, res) {
         // 극단 제외
         if (changeRate <= -7 || price < low20 * 0.94) {
           stats.excludedBreakdown += 1;
+          rememberMissed(
+            item,
+            "위험 제외",
+            `급락/저점 이탈 조건 · 등락률 ${changeRate.toFixed(2)}% · 20일 저점 +${distLow20.toFixed(1)}%`
+          );
           return null;
         }
-        if (changeRate >= 12 || threeDayChange >= 25) {
+        if ((changeRate >= 12 || threeDayChange >= 25) && !isHealthyTrend(baseMetrics)) {
           stats.excludedExtremeSurge += 1;
+          rememberMissed(
+            item,
+            "추격 제외",
+            `단기 과열 조건 · 3일 ${threeDayChange.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`
+          );
           return null;
         }
         if (todayVolume < 20000) {
           stats.excludedVolume += 1;
+          rememberMissed(
+            item,
+            "거래량 제외",
+            `오늘 거래량 ${todayVolume.toLocaleString()}주로 기준 미달`
+          );
           return null;
         }
 
@@ -739,10 +875,24 @@ export default async function handler(req, res) {
 
         if (finalScore < 50) {
           stats.scoreMiss += 1;
+          rememberMissed(
+            item,
+            "점수 미달",
+            `${best.strategyType} ${finalScore}점 · ${best.reasons.slice(0, 3).join(" · ") || "핵심 조건 부족"}`
+          );
           return null;
         }
 
         const g = grade(finalScore);
+        const entryDecision = getEntryDecision(
+          signal,
+          metrics,
+          finalScore,
+          best.strategyCode
+        );
+        const positionLabel = getPositionLabel(boxLower);
+        const positionPercent = Math.max(0, Math.min(Math.round(boxLower * 100), 100));
+        const supplyContinuity = getSupplyContinuity(metrics);
         stats.passed += 1;
         if (signal.signalCode === "ENTRY") stats.entrySignals += 1;
         if (signal.signalCode === "WATCH") stats.watchSignals += 1;
@@ -762,6 +912,9 @@ export default async function handler(req, res) {
           signalType: signal.signalType,
           signalCode: signal.signalCode,
           signalSummary: signal.signalSummary,
+          entryLabel: entryDecision.entryLabel,
+          entryCode: entryDecision.entryCode,
+          entryGuide: entryDecision.entryGuide,
 
           strategyType: best.strategyType,
           strategyCode: best.strategyCode,
@@ -773,12 +926,18 @@ export default async function handler(req, res) {
               ? "거래량 회복 포착"
               : "거래량 관찰",
           bigTradeAmount: `오늘/20일 ${volRelToday20.toFixed(2)}배 · 5일/20일 ${volRel5_20.toFixed(2)}배`,
+          supplyContinuity: supplyContinuity.label,
+          supplyContinuityDetail: supplyContinuity.detail,
           supply: "외국인·기관·프로그램 수급 API 추가 연결 예정",
           volume: `오늘 ${todayVolume.toLocaleString()}주`,
 
           chart: `20일저점 +${distLow20.toFixed(1)}% · 고점대비 -${pullbackFromHigh20.toFixed(1)}% · 박스위치 ${(boxLower * 100).toFixed(0)}%`,
+          positionLabel,
+          positionPercent,
+          positionBar: makePositionBar(boxLower),
 
           reason: [...best.reasons, ...penalties].slice(0, 7).join(" · "),
+          reasonChecklist: buildReasonChecklist(best, metrics),
 
           buy:
             best.strategyCode === "BOTTOM"
@@ -825,6 +984,7 @@ export default async function handler(req, res) {
       }),
       stocks: stocks.slice(0, 40),
       signalStocks: signalStocks.slice(0, 30),
+      missedStocks: missedStocks.slice(0, 30),
       sectors: []
     });
   } catch (error) {

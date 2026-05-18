@@ -413,6 +413,7 @@ export default async function handler(req, res) {
 
     const stocks = [];
     const signalStocks = [];
+    const avoidanceStocks = [];
     const missedStocks = [];
     const stats = {
       scanned: 0,
@@ -445,6 +446,42 @@ export default async function handler(req, res) {
         market: item.market,
         reason,
         detail
+      });
+    }
+
+    function rememberAvoidanceStock(item, m, avoidanceSignals, finalScore = 0) {
+      const actionableSignals = avoidanceSignals.filter(
+        (x) => x.severity === "RISK" || x.severity === "CHASE"
+      );
+      if (!actionableSignals.length) return;
+
+      const existing = avoidanceStocks.find((x) => x.code === item.code);
+      if (existing) {
+        existing.avoidanceSignals = [
+          ...existing.avoidanceSignals,
+          ...actionableSignals.filter(
+            (signal) =>
+              !existing.avoidanceSignals.some((x) => x.code === signal.code)
+          )
+        ];
+        existing.reason = existing.avoidanceSignals.map((x) => x.label).join(" · ");
+        existing.score = Math.max(existing.score, finalScore);
+        return;
+      }
+
+      avoidanceStocks.push({
+        name: item.name,
+        code: item.code,
+        market: item.market,
+        price: m.price.toLocaleString(),
+        change: `${m.changeRate > 0 ? "+" : ""}${m.changeRate.toFixed(2)}%`,
+        score: finalScore,
+        avoidanceType: actionableSignals.some((x) => x.severity === "RISK")
+          ? "위험"
+          : "추격주의",
+        reason: actionableSignals.map((x) => x.label).join(" · "),
+        chart: `20일선 ${m.price >= m.ma20 ? "상회" : "이탈"} · 고점대비 -${m.pullbackFromHigh20.toFixed(1)}% · 거래량 ${m.volRelToday20.toFixed(2)}배`,
+        avoidanceSignals: actionableSignals
       });
     }
 
@@ -1063,23 +1100,11 @@ export default async function handler(req, res) {
         };
 
         addMarketStats(baseMetrics);
-
-        const earlySignal = classifySignal(baseMetrics);
-        if (earlySignal.signalCode === "RISK" || earlySignal.signalCode === "CHASE") {
-          signalStocks.push({
-            name: item.name,
-            code: item.code,
-            market: item.market,
-            price: price.toLocaleString(),
-            change: `${changeRate > 0 ? "+" : ""}${changeRate.toFixed(2)}%`,
-            score: 0,
-            signalType: earlySignal.signalType,
-            signalCode: earlySignal.signalCode,
-            signalSummary: earlySignal.signalSummary,
-            reason: earlySignal.signalSummary,
-            chart: `20일선 ${price >= ma20 ? "상회" : "이탈"} · 고점대비 -${pullbackFromHigh20.toFixed(1)}% · 거래량 ${volRelToday20.toFixed(2)}배`
-          });
-        }
+        rememberAvoidanceStock(
+          item,
+          baseMetrics,
+          buildAvoidanceSignals(baseMetrics)
+        );
 
         // 극단 제외
         if (changeRate <= -7 || price < low20 * 0.94) {
@@ -1133,6 +1158,7 @@ export default async function handler(req, res) {
           programFlow
         };
         const avoidanceSignals = buildAvoidanceSignals(metrics);
+        rememberAvoidanceStock(item, metrics, avoidanceSignals);
 
         const strategyScores = evaluateStrategies(metrics);
         const best = strategyScores[0];
@@ -1174,6 +1200,7 @@ export default async function handler(req, res) {
 
         finalScore = Math.max(0, Math.min(finalScore, 100));
         const signal = classifySignal(metrics, finalScore, best.strategyCode);
+        rememberAvoidanceStock(item, metrics, avoidanceSignals, finalScore);
         if (
           (signal.signalCode === "RISK" || signal.signalCode === "CHASE") &&
           !signalStocks.some((s) => s.code === item.code && s.signalCode === signal.signalCode)
@@ -1490,6 +1517,10 @@ export default async function handler(req, res) {
       const weight = { RISK: 2, CHASE: 1 };
       return (weight[b.signalCode] || 0) - (weight[a.signalCode] || 0) || b.score - a.score;
     });
+    avoidanceStocks.sort((a, b) => {
+      const weight = { 위험: 2, 추격주의: 1 };
+      return (weight[b.avoidanceType] || 0) - (weight[a.avoidanceType] || 0) || b.score - a.score;
+    });
 
     const payload = {
       success: true,
@@ -1504,6 +1535,7 @@ export default async function handler(req, res) {
       }),
       stocks: stocks.slice(0, 40),
       signalStocks: signalStocks.slice(0, 30),
+      avoidanceStocks: avoidanceStocks.slice(0, 40),
       missedStocks: missedStocks.slice(0, 30),
       sectors: []
     };

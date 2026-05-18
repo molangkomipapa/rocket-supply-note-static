@@ -2,6 +2,14 @@ export default async function handler(req, res) {
   try {
     const BASE_URL =
       process.env.KIS_BASE_URL || "https://openapi.koreainvestment.com:9443";
+    const requestedConcurrency = Number(process.env.SCAN_CONCURRENCY || 8);
+    const scanConcurrency = Math.max(
+      1,
+      Math.min(
+        Number.isFinite(requestedConcurrency) ? requestedConcurrency : 8,
+        16
+      )
+    );
 
     const tokenRes = await fetch(`${BASE_URL}/oauth2/tokenP`, {
       method: "POST",
@@ -84,13 +92,9 @@ export default async function handler(req, res) {
       return data.output || null;
     }
 
-    async function getDailyChart(code) {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, "0");
-      const dd = String(today.getDate()).padStart(2, "0");
-      const endDate = `${yyyy}${mm}${dd}`;
+    const endDate = getTodayYmd();
 
+    async function getDailyChart(code) {
       const data = await kisGet(
         "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
         "FHKST03010100",
@@ -107,9 +111,34 @@ export default async function handler(req, res) {
       return data.output2 || [];
     }
 
+    function getTodayYmd() {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      return `${yyyy}${mm}${dd}`;
+    }
+
     function avg(arr) {
       if (!arr.length) return 0;
       return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
+    async function mapWithConcurrency(items, limit, mapper) {
+      const results = new Array(items.length);
+      let nextIndex = 0;
+
+      async function worker() {
+        while (nextIndex < items.length) {
+          const currentIndex = nextIndex;
+          nextIndex += 1;
+          results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+        }
+      }
+
+      const workerCount = Math.min(limit, items.length);
+      await Promise.all(Array.from({ length: workerCount }, worker));
+      return results;
     }
 
     function getSessionLabel() {
@@ -132,20 +161,13 @@ export default async function handler(req, res) {
 
     const sessionLabel = getSessionLabel();
 
-    let kospi = [];
-    let kosdaq = [];
+    const [kospiResult, kosdaqResult] = await Promise.allSettled([
+      getMarketCapRank("0001", 270),
+      getMarketCapRank("1001", 500)
+    ]);
 
-    try {
-      kospi = await getMarketCapRank("0001", 270);
-    } catch (e) {
-      kospi = [];
-    }
-
-    try {
-      kosdaq = await getMarketCapRank("1001", 500);
-    } catch (e) {
-      kosdaq = [];
-    }
+    let kospi = kospiResult.status === "fulfilled" ? kospiResult.value : [];
+    let kosdaq = kosdaqResult.status === "fulfilled" ? kosdaqResult.value : [];
 
     if (!kospi.length) {
       kospi = [
@@ -316,14 +338,15 @@ export default async function handler(req, res) {
       return results.sort((a, b) => b.score - a.score);
     }
 
-    for (const item of universe) {
+    async function scanStock(item) {
       try {
         stats.scanned += 1;
 
-        const priceData = await getPrice(item.code);
-        if (!priceData) continue;
-
-        const dailyRaw = await getDailyChart(item.code);
+        const [priceData, dailyRaw] = await Promise.all([
+          getPrice(item.code),
+          getDailyChart(item.code)
+        ]);
+        if (!priceData) return null;
 
         const price = Number(priceData.stck_prpr || 0);
         const changeRate = Number(priceData.prdy_ctrt || 0);
@@ -343,7 +366,7 @@ export default async function handler(req, res) {
           .filter((d) => d.close > 0)
           .slice(0, 80);
 
-        if (daily.length < 60) continue;
+        if (daily.length < 60) return null;
 
         const recent3 = daily.slice(0, 3);
         const recent5 = daily.slice(0, 5);
@@ -389,15 +412,15 @@ export default async function handler(req, res) {
         // 극단 제외
         if (changeRate <= -7 || price < low20 * 0.94) {
           stats.excludedBreakdown += 1;
-          continue;
+          return null;
         }
         if (changeRate >= 12 || threeDayChange >= 25) {
           stats.excludedExtremeSurge += 1;
-          continue;
+          return null;
         }
         if (todayVolume < 20000) {
           stats.excludedVolume += 1;
-          continue;
+          return null;
         }
 
         const bigCandle = recent10.find((d) => {
@@ -459,13 +482,13 @@ export default async function handler(req, res) {
 
         if (finalScore < 50) {
           stats.scoreMiss += 1;
-          continue;
+          return null;
         }
 
         const g = grade(finalScore);
         stats.passed += 1;
 
-        stocks.push({
+        return {
           name: item.name,
           code: item.code,
           market: item.market,
@@ -508,11 +531,18 @@ export default async function handler(req, res) {
               : "20일 저점 이탈 또는 수급 악화",
 
           target: "전고점 회복 / +5~8%"
-        });
+        };
       } catch (e) {
-        continue;
+        return null;
       }
     }
+
+    const scannedStocks = await mapWithConcurrency(
+      universe,
+      scanConcurrency,
+      scanStock
+    );
+    stocks.push(...scannedStocks.filter(Boolean));
 
     stocks.sort((a, b) => b.score - a.score);
 

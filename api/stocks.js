@@ -362,29 +362,8 @@ export default async function handler(req, res) {
     let kospi = kospiResult.status === "fulfilled" ? kospiResult.value : [];
     let kosdaq = kosdaqResult.status === "fulfilled" ? kosdaqResult.value : [];
 
-    if (!kospi.length) {
-      kospi = [
-        { code: "005930", name: "삼성전자", market: "KOSPI" },
-        { code: "000660", name: "SK하이닉스", market: "KOSPI" },
-        { code: "005380", name: "현대차", market: "KOSPI" },
-        { code: "000270", name: "기아", market: "KOSPI" },
-        { code: "064350", name: "현대로템", market: "KOSPI" },
-        { code: "204320", name: "HL만도", market: "KOSPI" },
-        { code: "006280", name: "녹십자", market: "KOSPI" },
-        { code: "454910", name: "두산로보틱스", market: "KOSPI" },
-        { code: "034020", name: "두산에너빌리티", market: "KOSPI" }
-      ];
-    }
-
-    if (!kosdaq.length) {
-      kosdaq = [
-        { code: "196170", name: "알테오젠", market: "KOSDAQ" },
-        { code: "086520", name: "에코프로", market: "KOSDAQ" },
-        { code: "247540", name: "에코프로비엠", market: "KOSDAQ" },
-        { code: "277810", name: "레인보우로보틱스", market: "KOSDAQ" },
-        { code: "042700", name: "한미반도체", market: "KOSDAQ" }
-      ];
-    }
+    // 고정 샘플 대체 로직 제거: 코스피/코스닥 상위 30% 종목만 스캔합니다.
+    // API에서 종목 리스트를 가져오지 못하면 해당 시장은 빈 목록으로 처리됩니다.
 
     const universe = [...kospi, ...kosdaq];
     const scanScope = {

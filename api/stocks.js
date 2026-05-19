@@ -111,14 +111,27 @@ export default async function handler(req, res) {
     });
 
     async function analyzeStock(item, options = {}) {
+      const stockMeta =
+        item.market === "직접입력" && !item.sector
+          ? await kis.getStockMeta(item.code)
+          : null;
+      const resolvedItem = {
+        ...item,
+        ...(stockMeta || {}),
+        name:
+          item.market === "직접입력"
+            ? stockMeta?.name || item.name || item.code
+            : item.name || stockMeta?.name || item.code,
+        market: item.market === "직접입력" ? stockMeta?.market || item.market : item.market
+      };
       const [priceData, dailyRaw] = await Promise.all([
-        kis.getPrice(item.code),
-        kis.getDailyChart(item.code)
+        kis.getPrice(resolvedItem.code),
+        kis.getDailyChart(resolvedItem.code)
       ]);
 
       if (!priceData) {
         return {
-          item,
+          item: resolvedItem,
           ok: false,
           rejectReason: "가격 데이터 없음",
           rejectDetail: "현재가 API 응답이 없어 분석하지 못했습니다."
@@ -128,7 +141,7 @@ export default async function handler(req, res) {
       const daily = normalizeDaily(dailyRaw);
       if (daily.length < MIN_DAILY_COUNT) {
         return {
-          item,
+          item: resolvedItem,
           ok: false,
           rejectReason: "일봉 부족",
           rejectDetail: `일봉 ${daily.length}개라 60일선 기준을 계산하지 못했습니다.`
@@ -136,7 +149,7 @@ export default async function handler(req, res) {
       }
 
       const programRows = options.withProgram
-        ? await kis.getProgramTradeDaily(item.code).catch(() => [])
+        ? await kis.getProgramTradeDaily(resolvedItem.code).catch(() => [])
         : [];
       const metrics = buildMetrics(priceData, daily, programRows);
       const scores = {
@@ -147,15 +160,15 @@ export default async function handler(req, res) {
       };
 
       return {
-        item,
+        item: resolvedItem,
         ok: true,
         metrics,
         scores,
         cards: {
-          capture: makeCard(item, metrics, scores.capture),
-          dayTrade: makeCard(item, metrics, scores.dayTrade),
-          supply: makeCard(item, metrics, scores.supply),
-          avoidance: makeCard(item, metrics, scores.avoidance)
+          capture: makeCard(resolvedItem, metrics, scores.capture),
+          dayTrade: makeCard(resolvedItem, metrics, scores.dayTrade),
+          supply: makeCard(resolvedItem, metrics, scores.supply),
+          avoidance: makeCard(resolvedItem, metrics, scores.avoidance)
         }
       };
     }
@@ -379,6 +392,8 @@ function makeCard(item, m, scoreInfo) {
     name: item.name,
     code: item.code,
     market: item.market,
+    sector: item.sector || "섹터 확인 대기",
+    industryCode: item.industryCode || "",
     category: scoreInfo.category,
     categoryCode: scoreInfo.code,
     score: scoreInfo.score,
@@ -400,6 +415,7 @@ function makeIndividualAnalysis(result) {
       name: result?.item?.name || "",
       code: result?.item?.code || "",
       market: result?.item?.market || "직접입력",
+      sector: result?.item?.sector || "섹터 확인 대기",
       rejectReason: result?.rejectReason || "분석 실패",
       rejectDetail: result?.rejectDetail || "분석하지 못했습니다."
     };
@@ -410,6 +426,7 @@ function makeIndividualAnalysis(result) {
     name: result.item.name,
     code: result.item.code,
     market: result.item.market,
+    sector: result.item.sector || "섹터 확인 대기",
     price: result.metrics.price.toLocaleString(),
     change: `${result.metrics.changeRate > 0 ? "+" : ""}${result.metrics.changeRate.toFixed(2)}%`,
     metrics: makeMetricSummary(result.metrics),

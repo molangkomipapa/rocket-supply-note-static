@@ -62,13 +62,21 @@ export function createKisClient({
     const apiList = await getMarketCapRankFromApi(market, count).catch(
       () => []
     );
-    if (apiList.length >= count) return apiList.slice(0, count);
-
     const masterList = await getMarketCapRankFromMaster(market, count).catch(
       () => []
     );
-    const merged = uniqueStocks([...apiList, ...masterList]).slice(0, count);
-    return merged.length ? merged : apiList;
+    const masterByCode = new Map(masterList.map((item) => [item.code, item]));
+    const enrichedApiList = apiList.map((item) => ({
+      ...masterByCode.get(item.code),
+      ...item,
+      sector: item.sector || masterByCode.get(item.code)?.sector || "섹터 확인 대기",
+      industryCode:
+        item.industryCode || masterByCode.get(item.code)?.industryCode || ""
+    }));
+    if (enrichedApiList.length >= count) return enrichedApiList.slice(0, count);
+
+    const merged = uniqueStocks([...enrichedApiList, ...masterList]).slice(0, count);
+    return merged.length ? merged : enrichedApiList;
   }
 
   async function getMarketCapRankFromApi(market, count) {
@@ -173,11 +181,20 @@ export function createKisClient({
     return getProgramTradeDaily(code, "J");
   }
 
+  async function getStockMeta(code) {
+    const [kospi, kosdaq] = await Promise.all([
+      getMarketCapRankFromMaster("KOSPI", 10000).catch(() => []),
+      getMarketCapRankFromMaster("KOSDAQ", 10000).catch(() => [])
+    ]);
+    return [...kospi, ...kosdaq].find((item) => item.code === code) || null;
+  }
+
   return {
     getMarketCapRank,
     getPrice,
     getDailyChart,
-    getProgramTradeDaily
+    getProgramTradeDaily,
+    getStockMeta
   };
 }
 
@@ -204,7 +221,13 @@ async function fetchMarketMasterRank(config) {
     .filter(Boolean)
     .sort((a, b) => b.marketCap - a.marketCap);
 
-  return rows.map(({ code, name, market }) => ({ code, name, market }));
+  return rows.map(({ code, name, market, sector, industryCode }) => ({
+    code,
+    name,
+    market,
+    sector,
+    industryCode
+  }));
 }
 
 async function extractFirstZipEntry(bytes) {
@@ -241,6 +264,8 @@ function parseMarketMasterLine(lineBytes, decoder, config) {
   const code = /^\d{6}$/.test(shortCode) ? shortCode : "";
   const name = head.slice(21).trim();
   const groupCode = tail.slice(1, 3);
+  const industryLarge = tail.slice(4, 8);
+  const industryMiddle = tail.slice(8, 12);
   const marketCap = toNumber(tail.slice(tail.length - 15, tail.length - 6));
 
   if (!code || !name || !["ST", "FS"].includes(groupCode) || marketCap <= 0) {
@@ -250,8 +275,56 @@ function parseMarketMasterLine(lineBytes, decoder, config) {
     code,
     name,
     market: config.market,
+    sector: inferSector(name, industryLarge, industryMiddle, config.market),
+    industryCode: `${industryLarge}/${industryMiddle}`,
     marketCap
   };
+}
+
+function inferSector(name, industryLarge, industryMiddle, market) {
+  const keywordSector = inferSectorByName(name);
+  if (keywordSector) return keywordSector;
+
+  const key = `${market}:${industryMiddle}`;
+  const middleMap = {
+    "KOSPI:0005": "음식료/담배",
+    "KOSPI:0008": "화학/에너지",
+    "KOSPI:0009": "바이오/제약",
+    "KOSPI:0011": "철강/소재",
+    "KOSPI:0012": "기계/중공업",
+    "KOSPI:0013": "반도체/전자",
+    "KOSPI:0015": "자동차/운송장비",
+    "KOSDAQ:1024": "바이오/제약",
+    "KOSDAQ:1027": "로봇/기계",
+    "KOSDAQ:1028": "2차전지/소재"
+  };
+  if (middleMap[key]) return middleMap[key];
+
+  const largeMap = {
+    "0020": "통신",
+    "0029": "인터넷/IT서비스",
+    "1006": "바이오/헬스케어",
+    "1014": "IT/소프트웨어"
+  };
+  return largeMap[industryLarge] || "섹터 확인 대기";
+}
+
+function inferSectorByName(name) {
+  const rules = [
+    [/조선|중공업|한화오션|한국조선|삼성중공업|HD현대미포/, "조선"],
+    [/금융|은행|증권|보험|카드|지주|캐피탈/, "금융"],
+    [/바이오|제약|셀트리온|알테오젠|삼천당|헬스케어|메디|파마/, "바이오/제약"],
+    [/전자|하이닉스|반도체|실리콘|테크윙|리노공업/, "반도체/전자"],
+    [/에코프로|배터리|에너지솔루션|퓨처엠|엘앤에프|천보/, "2차전지"],
+    [/현대차|기아|모비스|만도|HL만도|자동차|타이어/, "자동차"],
+    [/NAVER|카카오|엔씨|게임|소프트|데이터|클라우드/, "인터넷/게임"],
+    [/화학|이노베이션|S-Oil|정유|석유|케미칼/, "화학/에너지"],
+    [/POSCO|철강|스틸|제강/, "철강/소재"],
+    [/텔레콤|통신|KT|LG유플러스/, "통신"],
+    [/건설|건축|시멘트|레미콘/, "건설/인프라"],
+    [/로보|로봇|Robot/, "로봇"]
+  ];
+  return rules.find(([pattern]) => pattern.test(name))?.[1] || "";
 }
 
 function makeKoreanDecoder() {

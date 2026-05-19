@@ -86,12 +86,13 @@ function renderCard(card){
       <div class="row">
         <div>
           <div><span class="name">${card.name}</span> <span class="code">${card.code}</span></div>
-          <div class="muted">${card.price}원 · ${card.change} · ${card.market}</div>
+          <div class="muted">${card.price}원 · ${card.change} · ${card.market} · ${card.sector||"섹터 확인 대기"}</div>
         </div>
         <span class="badge ${tone(card)}">${card.status}</span>
       </div>
       <div class="badges">
         <span class="badge gray">${card.category}</span>
+        <span class="badge blue">${card.sector||"섹터 확인 대기"}</span>
         <span class="badge ${tone(card)}">${card.score}점</span>
       </div>
       <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.score,100))}%"></div></div>
@@ -114,6 +115,7 @@ function filterCards(cards){
     (card.name||"").includes(q)||
     (card.code||"").includes(q)||
     (card.market||"").includes(q)||
+    (card.sector||"").includes(q)||
     (card.status||"").includes(q)
   );
 }
@@ -178,7 +180,7 @@ function renderIndividualResult(result){
       <div class="row">
         <div>
           <div><span class="name">${result.name}</span> <span class="code">${result.code}</span></div>
-          <div class="muted">${result.price}원 · ${result.change} · ${result.market}</div>
+          <div class="muted">${result.price}원 · ${result.change} · ${result.market} · ${result.sector||"섹터 확인 대기"}</div>
         </div>
       </div>
       <div class="metrics">

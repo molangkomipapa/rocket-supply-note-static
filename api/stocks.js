@@ -6,7 +6,12 @@ const runtimeCache = globalThis.__rocketSupplyRuntimeCache || {
 };
 globalThis.__rocketSupplyRuntimeCache = runtimeCache;
 
-const CATEGORY_LIMIT = 40;
+const CATEGORY_LIMITS = {
+  capture: 15,
+  dayTrade: 10,
+  supply: 15,
+  avoidance: 15
+};
 const MIN_DAILY_COUNT = 60;
 
 export default async function handler(req, res) {
@@ -390,6 +395,18 @@ export default async function handler(req, res) {
       Object.values(categories).forEach((list) => {
         list.sort((a, b) => b.score - a.score);
       });
+      const totalMatches = {
+        capture: categories.capture.length,
+        dayTrade: categories.dayTrade.length,
+        supply: categories.supply.length,
+        avoidance: categories.avoidance.length
+      };
+      const visibleCategories = {
+        capture: categories.capture.slice(0, CATEGORY_LIMITS.capture),
+        dayTrade: categories.dayTrade.slice(0, CATEGORY_LIMITS.dayTrade),
+        supply: categories.supply.slice(0, CATEGORY_LIMITS.supply),
+        avoidance: categories.avoidance.slice(0, CATEGORY_LIMITS.avoidance)
+      };
 
       const scanScope = {
         topPercent: marketTopPercent,
@@ -421,15 +438,17 @@ export default async function handler(req, res) {
         scanScope,
         stats,
         summary: {
-          capture: categories.capture.length,
-          dayTrade: categories.dayTrade.length,
-          supply: categories.supply.length,
-          avoidance: categories.avoidance.length
+          capture: visibleCategories.capture.length,
+          dayTrade: visibleCategories.dayTrade.length,
+          supply: visibleCategories.supply.length,
+          avoidance: visibleCategories.avoidance.length
         },
-        stocks: categories.capture.slice(0, CATEGORY_LIMIT),
-        dayTradeStocks: categories.dayTrade.slice(0, CATEGORY_LIMIT),
-        supplyStocks: categories.supply.slice(0, CATEGORY_LIMIT),
-        avoidanceStocks: categories.avoidance.slice(0, CATEGORY_LIMIT)
+        totalMatches,
+        displayLimits: CATEGORY_LIMITS,
+        stocks: visibleCategories.capture,
+        dayTradeStocks: visibleCategories.dayTrade,
+        supplyStocks: visibleCategories.supply,
+        avoidanceStocks: visibleCategories.avoidance
       };
 
       runtimeCache.scan = {
@@ -484,58 +503,85 @@ export default async function handler(req, res) {
 }
 
 function scoreCapture(m) {
+  const trendOk = m.ma20 > m.ma60 || m.price > m.ma60;
+  const pullbackOk = m.pullbackFromHigh20 >= 3 && m.pullbackFromHigh20 <= 15;
+  const lowHoldOk =
+    m.price >= m.recentLow10 * 0.995 || m.price >= m.ma20 * 0.98;
+  const volumeRebuildOk =
+    m.todayVolume > m.prevVolume ||
+    m.volumeRecoveryDays >= 2 ||
+    m.volRelToday20 >= m.volRel5_20 * 1.1;
+  const restartOk =
+    m.todayVolume > m.prevVolume ||
+    m.price > m.open ||
+    m.price >= m.prevClose ||
+    m.price >= m.ma5;
+  const compressionOk =
+    (m.avgRange3 <= m.avgRange5 * 0.9 || m.range5 <= m.range10 * 0.85) &&
+    m.volRel5_20 >= 0.5 &&
+    m.volRel5_20 <= 1.2;
+  const chaseRisk =
+    m.changeRate >= 8 ||
+    m.threeDayChange >= 15 ||
+    m.volRelToday20 >= 4 ||
+    m.longBearCandle;
   const checks = [
     {
-      label: "추세 유지",
-      ok: m.ma20 > m.ma60 || m.price > m.ma60,
+      label: "저점 유지",
+      ok: lowHoldOk,
+      points: 25
+    },
+    {
+      label: "거래량 재증가",
+      ok: volumeRebuildOk,
       points: 20
     },
     {
-      label: "고점 대비 3~15% 눌림",
-      ok: m.pullbackFromHigh20 >= 3 && m.pullbackFromHigh20 <= 15,
-      points: 15
-    },
-    {
-      label: "저점 유지/20일선 지지",
-      ok: m.price >= m.recentLow10 * 0.995 || m.price >= m.ma20 * 0.98,
-      points: 15
-    },
-    {
-      label: "변동성 압축",
-      ok: m.avgRange3 <= m.avgRange5 * 0.9 || m.range5 <= m.range10 * 0.85,
-      points: 15
-    },
-    {
-      label: "거래량 압축 50~120%",
-      ok: m.volRel5_20 >= 0.5 && m.volRel5_20 <= 1.2,
-      points: 15
-    },
-    {
       label: "재출발 신호",
-      ok:
-        m.todayVolume > m.prevVolume ||
-        m.price > m.open ||
-        m.price >= m.prevClose ||
-        m.price >= m.ma5,
+      ok: restartOk,
+      points: 20
+    },
+    {
+      label: "압축 구조",
+      ok: compressionOk,
       points: 15
     },
     {
-      label: "추격 위험 없음",
-      ok:
-        m.changeRate < 8 &&
-        m.threeDayChange < 15 &&
-        m.volRelToday20 < 4 &&
-        !m.longBearCandle,
+      label: "눌림 위치",
+      ok: pullbackOk,
+      points: 10
+    },
+    {
+      label: "추세 유지",
+      ok: trendOk,
       points: 10
     }
   ];
 
-  return makeScore("포착", "capture", checks, [
+  const score = makeScore("포착", "capture", checks, [
     "매수후보",
     "분할관심",
     "관찰후보",
     "제외"
   ]);
+
+  if (chaseRisk) {
+    score.score = Math.max(0, score.score - 35);
+    score.failed.push("추격 제외 조건");
+    score.checks.push({
+      label: "추격 위험 감점",
+      ok: false,
+      points: -35
+    });
+    score.status = getGrade(score.score, [
+      "매수후보",
+      "분할관심",
+      "관찰후보",
+      "제외"
+    ]);
+  }
+
+  return score;
 }
 
 function scoreDayTrade(m) {
@@ -548,13 +594,13 @@ function scoreDayTrade(m) {
     {
       label: "거래량 20일 평균 2~5배",
       ok: m.volRelToday20 >= 2 && m.volRelToday20 <= 5,
-      points: 25
+      points: 30
     },
-    { label: "시가 유지", ok: m.price >= m.open, points: 20 },
+    { label: "시가 유지/회복", ok: m.price >= m.open, points: 20 },
     {
       label: "장중 저점 회복",
       ok: m.intradayRebound >= 1.5 || m.price >= m.prevClose,
-      points: 15
+      points: 20
     },
     {
       label: "체결강도 추정",
@@ -569,11 +615,6 @@ function scoreDayTrade(m) {
     {
       label: "섹터 동반 상승 추정",
       ok: m.price > m.ma20 && m.ma20 >= m.ma60 * 0.98,
-      points: 10
-    },
-    {
-      label: "재료/관심 존재 추정",
-      ok: m.changeRate >= 3 || m.volRelToday20 >= 2.5,
       points: 5
     }
   ];
@@ -612,7 +653,7 @@ function scoreSupply(m) {
     {
       label: "최근 누적 순매수",
       ok: m.programFlow.threeDayPositive || m.programFlow.positiveDays >= 3,
-      points: 30
+      points: 35
     },
     {
       label: "주가 유지력",
@@ -637,7 +678,7 @@ function scoreSupply(m) {
     {
       label: "섹터 동반 흐름 추정",
       ok: m.price > m.ma60 && m.ma20Slope > -0.5,
-      points: 10
+      points: 5
     }
   ];
   const score = makeScore("외국기관수급", "supply", checks, [
@@ -667,12 +708,12 @@ function scoreAvoidance(m) {
     {
       label: "20일선 이탈 + 회복 실패",
       ok: m.prevClose < m.ma20 && m.price < m.ma20 * 0.99,
-      points: 20
+      points: 25
     },
     {
       label: "거래량 증가 음봉",
       ok: m.price < m.open && m.volRelToday20 >= 1.5 && m.changeRate < 0,
-      points: 20
+      points: 25
     },
     {
       label: "반등 실패 반복",
@@ -690,12 +731,12 @@ function scoreAvoidance(m) {
     {
       label: "외국인/기관 수급 이탈 추정",
       ok: m.programFlow.available && m.programFlow.positiveDays === 0 && m.programFlow.totalNet < 0,
-      points: 10
+      points: 5
     },
     {
       label: "섹터 약화 추정",
       ok: m.price < m.ma60 || (m.ma20Slope < -0.5 && m.price < m.ma20),
-      points: 10
+      points: 5
     }
   ];
 

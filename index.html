@@ -134,6 +134,8 @@ function renderScanPanel(){
     panel.innerHTML='<div class="panelLine">스캔 정보를 준비하는 중입니다.</div>';
     return;
   }
+  const limits=data.displayLimits||{};
+  const total=data.totalMatches||{};
   panel.innerHTML=`
     <div class="row">
       <div>
@@ -144,7 +146,8 @@ function renderScanPanel(){
     </div>
     <div class="panelLine">
       대상 ${scope.totalActualCount}개 · 분석 ${stats.analyzed}개 · 제외 ${stats.rejected}개
-      <br>이 화면은 네 가지 점수 분류만 표시합니다.
+      <br>표시: 포착 ${limits.capture||15}개 / 급등 ${limits.dayTrade||10}개 / 수급 ${limits.supply||15}개 / 회피 ${limits.avoidance||15}개
+      <br>후보풀: 포착 ${total.capture||0}개 · 급등 ${total.dayTrade||0}개 · 수급 ${total.supply||0}개 · 회피 ${total.avoidance||0}개
     </div>`;
 }
 

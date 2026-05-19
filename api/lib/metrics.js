@@ -117,23 +117,42 @@ export function makeMetricSummary(m) {
     ma20Position: m.price >= m.ma20 ? "20일선 위" : "20일선 아래",
     trend: m.ma20 > m.ma60 ? "20일선 > 60일선" : "20일선 <= 60일선",
     program: m.programFlow.label,
-    programDetail: m.programFlow.detail
+    programDetail: m.programFlow.detail,
+    programBuyDays5: m.programFlow.buyDays5,
+    programBuyMomentum: Number(m.programFlow.buyMomentum.toFixed(2))
   };
 }
 
 function analyzeProgramContinuity(rows) {
   const recent = (rows || []).slice(0, 30);
   const values = recent.map(getProgramNetValue);
+  const buyValues = recent.map(getProgramBuyValue);
+  const sellValues = recent.map(getProgramSellValue);
   const recent3 = values.slice(0, 3);
   const recent5 = values.slice(0, 5);
   const recent10 = values.slice(0, 10);
+  const buyRecent3 = buyValues.slice(0, 3);
+  const buyRecent5 = buyValues.slice(0, 5);
+  const buyRecent10 = buyValues.slice(0, 10);
+  const buyRecent20 = buyValues.slice(0, 20);
   const positiveDays = recent5.filter((v) => v > 0).length;
   const positiveDays3 = recent3.filter((v) => v > 0).length;
   const positiveDays10 = recent10.filter((v) => v > 0).length;
   const positiveDays30 = values.filter((v) => v > 0).length;
+  const buyDays3 = buyRecent3.filter((v) => v > 0).length;
+  const buyDays5 = buyRecent5.filter((v) => v > 0).length;
+  const buyDays10 = buyRecent10.filter((v) => v > 0).length;
+  const buyDays30 = buyValues.filter((v) => v > 0).length;
   const threeDayPositive =
     recent3.length === 3 && recent3.every((v) => v > 0);
   const totalNet = values.reduce((sum, value) => sum + value, 0);
+  const totalBuy = buyValues.reduce((sum, value) => sum + value, 0);
+  const totalSell = sellValues.reduce((sum, value) => sum + value, 0);
+  const buyTotal5 = buyRecent5.reduce((sum, value) => sum + value, 0);
+  const buyTotal20 = buyRecent20.reduce((sum, value) => sum + value, 0);
+  const avgBuy5 = avg(buyRecent5);
+  const avgBuy20 = avg(buyRecent20);
+  const buyMomentum = avgBuy20 > 0 ? avgBuy5 / avgBuy20 : 0;
 
   return {
     available: recent.length > 0,
@@ -141,8 +160,18 @@ function analyzeProgramContinuity(rows) {
     positiveDays3,
     positiveDays10,
     positiveDays30,
+    buyDays3,
+    buyDays5,
+    buyDays10,
+    buyDays30,
     threeDayPositive,
     totalNet,
+    totalBuy,
+    totalSell,
+    buyTotal5,
+    buyTotal20,
+    buyMomentum,
+    buyDominant: totalBuy > 0 && totalBuy >= totalSell,
     label: threeDayPositive
       ? "프로그램 순매수 지속"
       : positiveDays >= 3
@@ -151,9 +180,41 @@ function analyzeProgramContinuity(rows) {
       ? "프로그램 단발 유입"
       : "프로그램 확인 대기",
     detail: recent.length
-      ? `최근 ${recent.length}일 중 ${positiveDays}일 순매수`
+      ? `최근 ${recent.length}일 중 ${positiveDays}일 순매수 · 매수 ${buyDays5}일`
       : "외국인/기관 직접 수급 API 연결 전"
   };
+}
+
+function getProgramBuyValue(row) {
+  const direct = pickNumber(row, [
+    "shnu_tr_pbmn",
+    "SHNU_TR_PBMN",
+    "prgm_buy_tr_pbmn",
+    "buy_tr_pbmn",
+    "shnu_cnqn",
+    "SHNU_CNQN",
+    "buy_cnqn"
+  ]);
+  if (direct) return direct;
+
+  const net = getProgramNetValue(row);
+  return net > 0 ? net : 0;
+}
+
+function getProgramSellValue(row) {
+  const direct = pickNumber(row, [
+    "seln_tr_pbmn",
+    "SELN_TR_PBMN",
+    "prgm_sell_tr_pbmn",
+    "sell_tr_pbmn",
+    "seln_cnqn",
+    "SELN_CNQN",
+    "sell_cnqn"
+  ]);
+  if (direct) return direct;
+
+  const net = getProgramNetValue(row);
+  return net < 0 ? Math.abs(net) : 0;
 }
 
 function getProgramNetValue(row) {

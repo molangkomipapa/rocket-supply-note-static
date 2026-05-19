@@ -38,6 +38,7 @@ body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSy
   </div>
 
   <div id="scanPanel" class="panel"></div>
+  <div id="sectorPanel" class="panel"></div>
 
   <div class="search">
     <input id="q" placeholder="종목명 또는 코드 검색" />
@@ -59,16 +60,17 @@ body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSy
 <script>
 const tabs=["포착","당일급등","외국기관수급","회피","개별검색"];
 let active="포착";
-let data={stocks:[],dayTradeStocks:[],supplyStocks:[],avoidanceStocks:[],scanScope:null,stats:null,summary:null};
+let data={stocks:[],dayTradeStocks:[],supplyStocks:[],avoidanceStocks:[],scanScope:null,stats:null,summary:null,sectorBoard:[]};
 let individual=null;
 
 function setTab(tab){active=tab;render()}
 document.getElementById("q").addEventListener("input",render);
 
 function tone(card){
-  if(card.categoryCode==="avoidance") return card.score>=80?"red":card.score>=65?"orange":"yellow";
-  if(card.score>=80) return "green";
-  if(card.score>=65) return "blue";
+  const score=card.priorityScore??card.score;
+  if(card.categoryCode==="avoidance") return score>=80?"red":score>=65?"orange":"yellow";
+  if(score>=80) return "green";
+  if(score>=65) return "blue";
   return "yellow";
 }
 
@@ -93,13 +95,16 @@ function renderCard(card){
       <div class="badges">
         <span class="badge gray">${card.category}</span>
         <span class="badge blue">${card.sector||"섹터 확인 대기"}</span>
-        <span class="badge ${tone(card)}">${card.score}점</span>
+        <span class="badge ${tone(card)}">우선 ${card.priorityScore??card.score}점</span>
+        ${card.rawScore!==undefined?`<span class="badge gray">원점 ${card.rawScore}점</span>`:""}
       </div>
-      <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.score,100))}%"></div></div>
+      <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.priorityScore??card.score,100))}%"></div></div>
       <div class="metrics">
         <div class="metric"><b>20일 고점 대비</b><span>-${card.metrics.pullbackFromHigh20}%</span></div>
         <div class="metric"><b>거래량</b><span>오늘 ${card.metrics.volRelToday20}배 / 5일 ${card.metrics.volRel5_20}배</span></div>
+        <div class="metric"><b>거래대금</b><span>${card.metrics.tradeValueEok}억</span></div>
         <div class="metric"><b>이평선</b><span>${card.metrics.ma20Position}</span></div>
+        <div class="metric"><b>섹터 강도</b><span>${card.sectorStrength??0}점</span></div>
         <div class="metric"><b>수급</b><span>${card.metrics.program}</span></div>
       </div>
       <div class="reason"><span class="muted">통과 조건</span><p>${card.reason}</p></div>
@@ -153,6 +158,25 @@ function renderScanPanel(){
     </div>`;
 }
 
+function renderSectorBoard(){
+  const panel=document.getElementById("sectorPanel");
+  const sectors=data.sectorBoard||[];
+  if(!sectors.length){
+    panel.innerHTML='<div class="panelLine">섹터 강도를 계산하는 중입니다.</div>';
+    return;
+  }
+  panel.innerHTML=`
+    <div class="muted">오늘 강한 섹터</div>
+    <div class="name">섹터 보드</div>
+    <div class="panelLine">
+      ${sectors.slice(0,5).map(s=>`
+        <div style="margin-top:10px">
+          <b>${s.sector}</b> · 강도 ${s.strength}점 · 포착 ${s.capture} / 급등 ${s.dayTrade} / 수급 ${s.supply} / 회피 ${s.avoidance}
+          <br><span class="muted">${(s.topStocks||[]).map(x=>x.name).join(" · ")}</span>
+        </div>`).join("")}
+    </div>`;
+}
+
 function renderTabs(){
   document.getElementById("tabs").innerHTML=tabs.map(tab=>
     `<button class="tab ${active===tab?'active':''}" onclick="setTab('${tab}')">${tab}</button>`
@@ -194,6 +218,7 @@ function renderIndividualResult(result){
 function render(){
   renderTabs();
   renderScanPanel();
+  renderSectorBoard();
   if(active==="개별검색"){
     renderIndividual();
     return;

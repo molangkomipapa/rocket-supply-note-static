@@ -97,6 +97,7 @@ function renderCard(card){
         <span class="badge blue">${card.sector||"섹터 확인 대기"}</span>
         <span class="badge ${tone(card)}">우선 ${card.priorityScore??card.score}점</span>
         ${card.rawScore!==undefined?`<span class="badge gray">원점 ${card.rawScore}점</span>`:""}
+        ${card.poolDisplay?`<span class="badge yellow">후보풀 보충</span>`:""}
       </div>
       <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.priorityScore??card.score,100))}%"></div></div>
       <div class="metrics">
@@ -224,8 +225,11 @@ function render(){
     return;
   }
   const cards=filterCards(currentCards());
+  const notice=active==="포착"&&data.capturePoolNotice
+    ? `<div class="notice">${data.capturePoolNotice}</div>`
+    : "";
   document.getElementById("content").innerHTML=cards.length
-    ? cards.map(renderCard).join("")
+    ? notice+cards.map(renderCard).join("")
     : `<div class="notice">${active} 조건에 맞는 종목이 없습니다.</div>`;
 }
 

@@ -23,8 +23,20 @@ export function scoreCapture(m) {
     m.volRelToday20 >= 3 ||
     m.longBearCandle ||
     (m.recentBigBullCandle && m.pullbackFromHigh20 < 5);
+  const hardExcluded =
+    m.changeRate >= 7 ||
+    m.fiveDayChange >= 18 ||
+    m.price > m.ma20 * 1.12 ||
+    m.volRelToday20 >= 4 ||
+    (m.longBearCandle && !lowMaintained);
 
-  const lowScore = lowPoint(lowMaintained, ma20Support, shortMaSupport, volatile);
+  const lowScore = lowPoint(
+    lowMaintained,
+    ma20Support,
+    shortMaSupport,
+    volatile,
+    m.longBearCandle
+  );
   const compressionScore = compressionPoint(m);
   const pullbackScore = pullbackPoint(m);
   const volumeScore = volumeStabilityPoint(m);
@@ -60,6 +72,8 @@ export function scoreCapture(m) {
 
   const score = makeScore("포착", "capture", checks, CAPTURE_LABELS);
   score.status = getCaptureGrade(score.score);
+  score.poolEligible = isCapturePoolEligible(m, lowMaintained, compressionScore);
+  score.hardExcluded = hardExcluded;
 
   const heatPenalty = heatRiskPenalty(m, rested);
   if (heatPenalty > 0 || !rested) {
@@ -78,6 +92,9 @@ export function scoreCapture(m) {
   if (hardChaseRisk) {
     score.failed.push("당일급등 탭 우선 확인");
   }
+  if (hardExcluded) {
+    score.failed.push("포착 하드 제외");
+  }
 
   return score;
 }
@@ -90,10 +107,10 @@ export function getCaptureGrade(score) {
   return "제외";
 }
 
-function lowPoint(lowMaintained, ma20Support, shortMaSupport, volatile) {
-  if (lowMaintained && ma20Support) return 30;
-  if (lowMaintained && shortMaSupport && !volatile) return 24;
-  if (lowMaintained) return 15;
+function lowPoint(lowMaintained, ma20Support, shortMaSupport, volatile, longBearCandle) {
+  if (lowMaintained && ma20Support && !longBearCandle) return 35;
+  if (lowMaintained && (shortMaSupport || ma20Support)) return 25;
+  if (lowMaintained && !volatile) return 10;
   return 0;
 }
 
@@ -106,8 +123,8 @@ function compressionPoint(m) {
   const sideways = restedBox && m.avgRange3 <= m.avgRange5 * 1.05;
 
   if (candleCompressed && rangeCompressed && maCompressed) return 25;
-  if ((rangeCompressed && maTight) || (candleCompressed && maCompressed)) return 18;
-  if (sideways) return 10;
+  if ((rangeCompressed && maTight) || (candleCompressed && maCompressed)) return 15;
+  if (sideways) return 5;
   return 0;
 }
 
@@ -126,29 +143,19 @@ function pullbackPoint(m) {
     (m.pullbackFromHigh20 > 15 && m.pullbackFromHigh20 <= 20) ||
     (m.pullbackFromHigh20 >= 5 && m.pullbackFromHigh20 <= 15)
   ) {
-    return 14;
+    return 10;
   }
-  if (m.pullbackFromHigh20 < 3) return 7;
   return 0;
 }
 
 function volumeStabilityPoint(m) {
-  if (
-    m.volRelToday20 >= 0.6 &&
-    m.volRelToday20 <= 1.5 &&
-    m.volRel5_20 >= 0.5 &&
-    m.volRel5_20 <= 1.2
-  ) {
-    return 15;
-  }
+  if (m.volRelToday20 >= 0.6 && m.volRelToday20 <= 1.5) return 10;
   if (
     (m.volRelToday20 >= 0.4 && m.volRelToday20 < 0.6) ||
-    (m.volRelToday20 > 1.5 && m.volRelToday20 <= 2.2) ||
-    (m.volRel5_20 > 1.2 && m.volRel5_20 <= 1.6)
+    (m.volRelToday20 > 1.5 && m.volRelToday20 <= 2)
   ) {
-    return 10;
+    return 5;
   }
-  if (m.volRelToday20 < 0.4) return 5;
   return 0;
 }
 
@@ -197,6 +204,23 @@ function isRested(m) {
   const rangeSettled = m.range10 <= 18 || m.range15 <= 22;
   const notExtended = m.price <= m.ma20 * 1.08;
   return notShortSurge && tenDayNotHot && rangeSettled && notExtended;
+}
+
+function isCapturePoolEligible(m, lowMaintained, compressionScore) {
+  const trendNotBroken = m.price >= m.ma60 * 0.95 || m.ma20 >= m.ma60 * 0.95;
+  const notSharpDrop = m.changeRate > -6 && m.price >= m.low20 * 0.97;
+  const someCompression =
+    compressionScore > 0 ||
+    m.range10 <= 20 ||
+    m.ma5Ma20Gap <= 6 ||
+    m.volRel5_20 <= 1.4;
+  const notOverheated =
+    m.changeRate < 7 &&
+    m.fiveDayChange < 18 &&
+    m.volRelToday20 < 4 &&
+    m.price <= m.ma20 * 1.12;
+
+  return trendNotBroken && notSharpDrop && someCompression && lowMaintained && notOverheated;
 }
 
 function gradeLabel(label, points) {

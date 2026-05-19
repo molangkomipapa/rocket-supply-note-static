@@ -228,6 +228,7 @@ export default async function handler(req, res) {
         supply: [],
         avoidance: []
       };
+      const capturePool = [];
       const analyzedResults = [];
 
       const results = await mapWithConcurrency(
@@ -258,6 +259,7 @@ export default async function handler(req, res) {
         stats.validCharts += 1;
         analyzedResults.push(result);
         pushCandidate(categories.capture, result.cards.capture);
+        pushCapturePool(capturePool, result.cards.capture);
         pushCandidate(categories.dayTrade, result.cards.dayTrade);
         pushCandidate(categories.supply, result.cards.supply);
         pushCandidate(categories.avoidance, result.cards.avoidance);
@@ -265,12 +267,19 @@ export default async function handler(req, res) {
 
       const sectorBoard = buildSectorBoard(analyzedResults);
       applySectorPriority(categories, sectorBoard);
+      applySectorPriority({ capturePool }, sectorBoard);
       Object.keys(categories).forEach((key) => {
         categories[key] = categories[key].filter((card) => card.visible);
       });
       Object.values(categories).forEach((list) => {
         list.sort((a, b) => b.priorityScore - a.priorityScore);
       });
+      capturePool.sort((a, b) => b.priorityScore - a.priorityScore);
+      const capturePoolAdded = fillCaptureFromPool(
+        categories.capture,
+        capturePool,
+        CATEGORY_LIMITS.capture
+      );
       const totalMatches = {
         capture: categories.capture.length,
         dayTrade: categories.dayTrade.length,
@@ -309,6 +318,10 @@ export default async function handler(req, res) {
         totalMatches,
         sectorBoard,
         displayLimits: CATEGORY_LIMITS,
+        capturePoolNotice: capturePoolAdded
+          ? "완전 조건 충족 종목 부족으로 후보풀 상위 종목을 함께 표시합니다."
+          : "",
+        capturePoolAdded,
         stocks: visibleCategories.capture,
         dayTradeStocks: visibleCategories.dayTrade,
         supplyStocks: visibleCategories.supply,
@@ -432,6 +445,9 @@ function makeCard(item, m, scoreInfo, allScores) {
     riskPenalty,
     liquidityBonus,
     tradeValueOk,
+    poolEligible: !!scoreInfo.poolEligible,
+    hardExcluded: !!scoreInfo.hardExcluded,
+    poolDisplay: false,
     status: finalStatus,
     price: m.price.toLocaleString(),
     change: `${m.changeRate > 0 ? "+" : ""}${m.changeRate.toFixed(2)}%`,
@@ -439,7 +455,10 @@ function makeCard(item, m, scoreInfo, allScores) {
     failed,
     checks: scoreInfo.checks,
     metrics: makeMetricSummary(m),
-    visible: tradeValueOk && isVisibleScore(scoreInfo.code, priorityScore)
+    visible:
+      tradeValueOk &&
+      !scoreInfo.hardExcluded &&
+      isVisibleScore(scoreInfo.code, priorityScore)
   };
 }
 
@@ -560,7 +579,9 @@ function applySectorPriority(categories, sectorBoard) {
           ? card.status
           : getCategoryStatus(card.categoryCode, card.priorityScore, card.status);
       card.visible =
-        card.tradeValueOk && isVisibleScore(card.categoryCode, card.priorityScore);
+        card.tradeValueOk &&
+        !card.hardExcluded &&
+        isVisibleScore(card.categoryCode, card.priorityScore);
     });
   });
 }
@@ -611,9 +632,48 @@ function isVisibleScore(categoryCode, score) {
 }
 
 function pushCandidate(list, card) {
-  if (card.tradeValueOk && card.priorityScore >= (card.categoryCode === "capture" ? 55 : 40)) {
+  if (
+    card.tradeValueOk &&
+    !card.hardExcluded &&
+    card.priorityScore >= (card.categoryCode === "capture" ? 55 : 40)
+  ) {
     list.push(card);
   }
+}
+
+function pushCapturePool(list, card) {
+  if (
+    card.tradeValueOk &&
+    card.poolEligible &&
+    !card.hardExcluded &&
+    card.priorityScore >= 40
+  ) {
+    list.push(card);
+  }
+}
+
+function fillCaptureFromPool(captureList, capturePool, limit) {
+  if (captureList.length >= limit) return 0;
+
+  const seen = new Set(captureList.map((card) => card.code));
+  let added = 0;
+
+  for (const card of capturePool) {
+    if (captureList.length >= limit) break;
+    if (seen.has(card.code)) continue;
+
+    captureList.push({
+      ...card,
+      poolDisplay: true,
+      status: "관심 표시",
+      reason: `조건 일부 부족 · ${card.reason || "압축 및 위치 후보"}`
+    });
+    seen.add(card.code);
+    added += 1;
+  }
+
+  captureList.sort((a, b) => b.priorityScore - a.priorityScore);
+  return added;
 }
 
 async function mapWithConcurrency(items, limit, mapper) {

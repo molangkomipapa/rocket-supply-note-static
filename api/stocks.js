@@ -6,7 +6,7 @@ import {
   normalizeDaily
 } from "./lib/metrics.js";
 import { scoreAvoidance } from "./lib/scoring/avoidance.js";
-import { scoreCapture } from "./lib/scoring/capture.js";
+import { getCaptureGrade, scoreCapture } from "./lib/scoring/capture.js";
 import { scoreDayTrade } from "./lib/scoring/dayTrade.js";
 import { scoreSupply } from "./lib/scoring/supply.js";
 
@@ -410,7 +410,11 @@ function makeCard(item, m, scoreInfo, allScores) {
     scoreInfo.code === "avoidance"
       ? scoreInfo.score
       : clampNumber(scoreInfo.score - riskPenalty + liquidityBonus, 0, 100, 0);
-  const finalStatus = getCategoryStatus(scoreInfo.code, priorityScore, scoreInfo.status);
+  const finalStatus = getCategoryStatus(
+    scoreInfo.code,
+    priorityScore,
+    scoreInfo.status
+  );
   const failed = [...scoreInfo.failed];
   if (!tradeValueOk) failed.push("거래대금 기준 미달");
 
@@ -435,7 +439,7 @@ function makeCard(item, m, scoreInfo, allScores) {
     failed,
     checks: scoreInfo.checks,
     metrics: makeMetricSummary(m),
-    visible: tradeValueOk && priorityScore >= 50
+    visible: tradeValueOk && isVisibleScore(scoreInfo.code, priorityScore)
   };
 }
 
@@ -491,7 +495,7 @@ function buildSectorBoard(results) {
       result.scores.dayTrade.score,
       result.scores.supply.score
     );
-    if (result.scores.capture.score >= 50) row.capture += 1;
+    if (result.scores.capture.score >= 55) row.capture += 1;
     if (result.scores.dayTrade.score >= 50) row.dayTrade += 1;
     if (result.scores.supply.score >= 50) row.supply += 1;
     if (result.scores.avoidance.score >= 50) row.avoidance += 1;
@@ -555,7 +559,8 @@ function applySectorPriority(categories, sectorBoard) {
         card.categoryCode === "avoidance"
           ? card.status
           : getCategoryStatus(card.categoryCode, card.priorityScore, card.status);
-      card.visible = card.tradeValueOk && card.priorityScore >= 50;
+      card.visible =
+        card.tradeValueOk && isVisibleScore(card.categoryCode, card.priorityScore);
     });
   });
 }
@@ -596,20 +601,19 @@ function getCategoryStatus(categoryCode, score, fallback) {
     return "제외";
   }
   if (categoryCode === "capture") {
-    return getEntryStatus(score);
+    return getCaptureGrade(score);
   }
   return fallback;
 }
 
-function getEntryStatus(score) {
-  if (score >= 80) return "매수후보";
-  if (score >= 65) return "분할관심";
-  if (score >= 50) return "관찰후보";
-  return "제외";
+function isVisibleScore(categoryCode, score) {
+  return score >= (categoryCode === "capture" ? 55 : 50);
 }
 
 function pushCandidate(list, card) {
-  if (card.tradeValueOk && card.priorityScore >= 40) list.push(card);
+  if (card.tradeValueOk && card.priorityScore >= (card.categoryCode === "capture" ? 55 : 40)) {
+    list.push(card);
+  }
 }
 
 async function mapWithConcurrency(items, limit, mapper) {

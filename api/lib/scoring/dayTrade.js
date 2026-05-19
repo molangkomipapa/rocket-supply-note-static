@@ -1,18 +1,27 @@
 import { getGrade, makeScore } from "./common.js";
 
 export function scoreDayTrade(m) {
-  const risk =
+  const distributionRisk =
+    m.price < m.open ||
+    m.pullbackFromTodayHigh >= 6 ||
     m.upperWickRatio > 0.45 ||
-    (m.volRelToday20 >= 5 && m.price < m.open) ||
     m.longBearCandle ||
-    m.price < m.open * 0.995;
+    (m.volRelToday20 >= 4 && m.changeRate < 1);
   const checks = [
     {
-      label: gradeLabel("거래량 폭증", volumePoint(m)),
-      points: volumePoint(m)
+      label: gradeLabel("거래대금 집중도", tradeValuePoint(m)),
+      points: tradeValuePoint(m)
     },
     {
-      label: gradeLabel("시가 유지/회복", openPoint(m)),
+      label: gradeLabel("대량 매수체결 우위", buyPressurePoint(m)),
+      points: buyPressurePoint(m)
+    },
+    {
+      label: gradeLabel("거래대금 방향성", moneyDirectionPoint(m)),
+      points: moneyDirectionPoint(m)
+    },
+    {
+      label: gradeLabel("시가 유지력", openPoint(m)),
       points: openPoint(m)
     },
     {
@@ -20,16 +29,8 @@ export function scoreDayTrade(m) {
       points: reboundPoint(m)
     },
     {
-      label: gradeLabel("체결강도/수급", strengthPoint(m)),
-      points: strengthPoint(m)
-    },
-    {
-      label: gradeLabel("고점 대비 밀림 작음", m.pullbackFromTodayHigh <= 3 ? 10 : 0),
-      points: m.pullbackFromTodayHigh <= 3 ? 10 : 0
-    },
-    {
-      label: gradeLabel("섹터 동반 상승", m.price > m.ma20 && m.ma20 >= m.ma60 * 0.98 ? 5 : 0),
-      points: m.price > m.ma20 && m.ma20 >= m.ma60 * 0.98 ? 5 : 0
+      label: gradeLabel("섹터 쏠림", sectorPoint(m)),
+      points: sectorPoint(m)
     }
   ];
   const score = makeScore("당일급등", "dayTrade", checks, [
@@ -39,13 +40,14 @@ export function scoreDayTrade(m) {
     "제외"
   ]);
 
-  if (risk) {
-    score.score = Math.max(0, score.score - 25);
-    score.failed.push("위험 제외 조건");
+  const penalty = riskPenalty(m, distributionRisk);
+  if (penalty > 0) {
+    score.score = Math.max(0, score.score - penalty);
+    score.failed.push("매도 우위/분배 위험 감점");
     score.checks.push({
-      label: "윗꼬리/시가 이탈/장대음봉 위험",
+      label: `고점 밀림/윗꼬리/시가 이탈 -${penalty}`,
       ok: false,
-      points: -25
+      points: -penalty
     });
     score.status = getGrade(score.score, [
       "당일 단타 핵심",
@@ -58,32 +60,68 @@ export function scoreDayTrade(m) {
   return score;
 }
 
-function volumePoint(m) {
-  if (m.volRelToday20 >= 3 && m.volRelToday20 <= 5) return 30;
-  if (m.volRelToday20 >= 2 && m.volRelToday20 < 3) return 22;
-  if (m.volRelToday20 >= 1.5 && m.volRelToday20 < 2) return 12;
+function tradeValuePoint(m) {
+  const eok = m.tradeValue / 100000000;
+  if (eok >= 1000) return 30;
+  if (eok >= 500) return 24;
+  if (eok >= 200) return 16;
+  if (eok >= 100) return 8;
+  return 0;
+}
+
+function buyPressurePoint(m) {
+  const programBuy = m.programFlow.totalNet > 0;
+  const strongBody = m.price > m.open && m.price > m.prevClose;
+  const highHold = m.pullbackFromTodayHigh <= 3;
+  const notTooExtended = m.changeRate > 0 && m.changeRate <= 12;
+
+  if (programBuy && strongBody && highHold && notTooExtended) return 25;
+  if ((programBuy && highHold) || (strongBody && highHold && m.volRelToday20 >= 1.5)) {
+    return 17;
+  }
+  if (m.price >= m.prevClose && m.pullbackFromTodayHigh <= 5) return 8;
+  return 0;
+}
+
+function moneyDirectionPoint(m) {
+  const eok = m.tradeValue / 100000000;
+  if (eok >= 300 && m.changeRate > 0 && m.price >= m.open && m.pullbackFromTodayHigh <= 3) {
+    return 20;
+  }
+  if (eok >= 100 && m.changeRate > 0 && m.pullbackFromTodayHigh <= 5) return 14;
+  if (eok >= 50 && m.changeRate >= 0) return 6;
   return 0;
 }
 
 function openPoint(m) {
-  if (m.price >= m.open * 1.005) return 20;
-  if (m.low < m.open && m.price >= m.open) return 12;
-  if (m.price >= m.open * 0.995) return 5;
+  if (m.price >= m.open * 1.005) return 10;
+  if (m.low < m.open && m.price >= m.open) return 7;
+  if (m.price >= m.open * 0.995) return 3;
   return 0;
 }
 
 function reboundPoint(m) {
-  if (m.intradayRebound >= 3) return 20;
-  if (m.intradayRebound >= 1.5) return 14;
-  if (m.intradayRebound >= 0.5) return 7;
+  if (m.intradayRebound >= 3 && m.pullbackFromTodayHigh <= 3) return 10;
+  if (m.intradayRebound >= 1.5) return 7;
+  if (m.intradayRebound >= 0.5) return 3;
   return 0;
 }
 
-function strengthPoint(m) {
-  if (m.price >= m.open && m.todayVolume > m.prevVolume) return 15;
-  if (m.price >= m.prevClose && m.volRelToday20 >= 1.5) return 9;
-  if (m.price >= m.prevClose) return 5;
+function sectorPoint(m) {
+  if (m.price > m.ma20 && m.ma20 >= m.ma60 * 0.98 && m.changeRate > 0) return 5;
+  if (m.price > m.ma20 && m.changeRate > 0) return 3;
   return 0;
+}
+
+function riskPenalty(m, distributionRisk) {
+  let penalty = 0;
+  if (distributionRisk) penalty += 20;
+  if (m.marketCap > 0 && m.marketCap < 300000000000) penalty += 8;
+  if (m.pullbackFromTodayHigh >= 10) penalty += 15;
+  else if (m.pullbackFromTodayHigh >= 6) penalty += 8;
+  if (m.changeRate < 0 && m.volRelToday20 >= 2) penalty += 15;
+  if (m.programFlow.totalNet < 0) penalty += 10;
+  return Math.min(penalty, 45);
 }
 
 function gradeLabel(label, points) {

@@ -221,12 +221,13 @@ async function fetchMarketMasterRank(config) {
     .filter(Boolean)
     .sort((a, b) => b.marketCap - a.marketCap);
 
-  return rows.map(({ code, name, market, sector, industryCode }) => ({
+  return rows.map(({ code, name, market, sector, industryCode, marketCap }) => ({
     code,
     name,
     market,
     sector,
-    industryCode
+    industryCode,
+    marketCap
   }));
 }
 

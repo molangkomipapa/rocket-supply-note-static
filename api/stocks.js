@@ -157,7 +157,7 @@ export default async function handler(req, res) {
       const programRows = options.withProgram
         ? await kis.getProgramTradeDaily(resolvedItem.code).catch(() => [])
         : [];
-      const metrics = buildMetrics(priceData, daily, programRows);
+      const metrics = buildMetrics(priceData, daily, programRows, resolvedItem);
       const scores = {
         capture: scoreCapture(metrics),
         dayTrade: scoreDayTrade(metrics),

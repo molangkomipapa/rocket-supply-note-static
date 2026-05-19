@@ -13,7 +13,7 @@ export function normalizeDaily(raw) {
     .slice(0, 80);
 }
 
-export function buildMetrics(priceData, daily, programRows) {
+export function buildMetrics(priceData, daily, programRows, item = {}) {
   const today = daily[0];
   const recent3 = daily.slice(0, 3);
   const recent5 = daily.slice(0, 5);
@@ -57,6 +57,7 @@ export function buildMetrics(priceData, daily, programRows) {
     low,
     todayVolume,
     tradeValue: price * todayVolume,
+    marketCap: Number(item.marketCap || 0),
     prevVolume,
     prevClose,
     changeRate: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
@@ -112,6 +113,7 @@ export function makeMetricSummary(m) {
     volRelToday20: Number(m.volRelToday20.toFixed(2)),
     volRel5_20: Number(m.volRel5_20.toFixed(2)),
     tradeValueEok: Number((m.tradeValue / 100000000).toFixed(1)),
+    marketCapEok: Number((m.marketCap / 100000000).toFixed(1)),
     ma5Ma20Gap: Number(m.ma5Ma20Gap.toFixed(1)),
     tenDayChange: Number(m.tenDayChange.toFixed(1)),
     ma20Position: m.price >= m.ma20 ? "20일선 위" : "20일선 아래",

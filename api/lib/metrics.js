@@ -18,6 +18,7 @@ export function buildMetrics(priceData, daily, programRows) {
   const recent3 = daily.slice(0, 3);
   const recent5 = daily.slice(0, 5);
   const recent10 = daily.slice(0, 10);
+  const recent15 = daily.slice(0, 15);
   const recent20 = daily.slice(0, 20);
   const recent60 = daily.slice(0, 60);
   const price = toNumber(priceData.stck_prpr) || today.close;
@@ -39,9 +40,15 @@ export function buildMetrics(priceData, daily, programRows) {
   const low5 = Math.min(...recent5.map((d) => d.low));
   const high10 = Math.max(...recent10.map((d) => d.high));
   const low10 = Math.min(...recent10.map((d) => d.low));
+  const high15 = Math.max(...recent15.map((d) => d.high));
+  const low15 = Math.min(...recent15.map((d) => d.low));
   const candleRange = (d) =>
     d.close > 0 ? ((d.high - d.low) / d.close) * 100 : 0;
   const bodyRate = price > 0 ? ((price - open) / price) * 100 : 0;
+  const recentBigBullCandle = recent10.some((d) => {
+    const body = d.close > 0 ? ((d.close - d.open) / d.close) * 100 : 0;
+    return body >= 5 && avgVol20 > 0 && d.volume >= avgVol20 * 1.5;
+  });
 
   return {
     price,
@@ -55,9 +62,16 @@ export function buildMetrics(priceData, daily, programRows) {
     changeRate: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
     threeDayChange:
       daily[2]?.close > 0 ? ((price - daily[2].close) / daily[2].close) * 100 : 0,
+    fiveDayChange:
+      daily[4]?.close > 0 ? ((price - daily[4].close) / daily[4].close) * 100 : 0,
+    tenDayChange:
+      daily[9]?.close > 0 ? ((price - daily[9].close) / daily[9].close) * 100 : 0,
+    fifteenDayChange:
+      daily[14]?.close > 0 ? ((price - daily[14].close) / daily[14].close) * 100 : 0,
     ma5,
     ma20,
     ma60,
+    ma5Ma20Gap: ma20 > 0 ? (Math.abs(ma5 - ma20) / ma20) * 100 : 999,
     ma20Slope: ma20Prev5 > 0 ? ((ma20 - ma20Prev5) / ma20Prev5) * 100 : 0,
     low20,
     high20,
@@ -66,6 +80,7 @@ export function buildMetrics(priceData, daily, programRows) {
       : low20,
     range5: low5 > 0 ? ((high5 - low5) / low5) * 100 : 999,
     range10: low10 > 0 ? ((high10 - low10) / low10) * 100 : 999,
+    range15: low15 > 0 ? ((high15 - low15) / low15) * 100 : 999,
     avgRange3: avg(recent3.map(candleRange)),
     avgRange5: avg(recent5.map(candleRange)),
     volRel5_20: avgVol20 > 0 ? avgVol5 / avgVol20 : 1,
@@ -81,6 +96,7 @@ export function buildMetrics(priceData, daily, programRows) {
     upperWickRatio: getUpperWickRatio({ open, high, low, close: price }),
     recentUpperWickCount: recent5.filter((d) => getUpperWickRatio(d) >= 0.4).length,
     bodyRate,
+    recentBigBullCandle,
     longBearCandle:
       bodyRate <= -4 && todayVolume >= avgVol20 * 1.2 && price <= low * 1.03,
     programFlow: analyzeProgramContinuity(programRows)
@@ -96,6 +112,8 @@ export function makeMetricSummary(m) {
     volRelToday20: Number(m.volRelToday20.toFixed(2)),
     volRel5_20: Number(m.volRel5_20.toFixed(2)),
     tradeValueEok: Number((m.tradeValue / 100000000).toFixed(1)),
+    ma5Ma20Gap: Number(m.ma5Ma20Gap.toFixed(1)),
+    tenDayChange: Number(m.tenDayChange.toFixed(1)),
     ma20Position: m.price >= m.ma20 ? "20일선 위" : "20일선 아래",
     trend: m.ma20 > m.ma60 ? "20일선 > 60일선" : "20일선 <= 60일선",
     program: m.programFlow.label,

@@ -54,17 +54,68 @@ body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSy
   <button onclick="setTab('당일급등')">🔥<br>급등</button>
   <button onclick="setTab('외국기관수급')">💰<br>수급</button>
   <button onclick="setTab('회피')">⚠️<br>회피</button>
+  <button onclick="setTab('관심')">⭐<br>관심</button>
   <button onclick="setTab('개별검색')">🔎<br>검색</button>
 </div>
 
 <script>
-const tabs=["포착","당일급등","외국기관수급","회피","개별검색"];
+const tabs=["포착","당일급등","외국기관수급","회피","관심","개별검색"];
 let active="포착";
 let data={stocks:[],dayTradeStocks:[],supplyStocks:[],avoidanceStocks:[],scanScope:null,stats:null,summary:null,sectorBoard:[]};
 let individual=null;
+let watchlist=loadWatchlist();
 
 function setTab(tab){active=tab;render()}
 document.getElementById("q").addEventListener("input",render);
+
+function loadWatchlist(){
+  try{return JSON.parse(localStorage.getItem("rocketWatchlist")||"[]")}
+  catch{return []}
+}
+function saveWatchlist(){localStorage.setItem("rocketWatchlist",JSON.stringify(watchlist))}
+function allScanCards(){return [
+  ...(data.stocks||[]),
+  ...(data.dayTradeStocks||[]),
+  ...(data.supplyStocks||[]),
+  ...(data.avoidanceStocks||[])
+]}
+function findLatestCard(code){return allScanCards().find(card=>card.code===code)||null}
+function isWatched(code){return watchlist.some(item=>item.code===code)}
+function makeWatchSnapshot(card){
+  return {
+    ...card,
+    addedAt:new Date().toISOString(),
+    addedAtText:new Date().toLocaleDateString("ko-KR",{timeZone:"Asia/Seoul"}),
+    watchedFrom:card.category||"개별분석"
+  };
+}
+function toggleWatch(code){
+  const existing=watchlist.find(item=>item.code===code);
+  if(existing){
+    watchlist=watchlist.filter(item=>item.code!==code);
+  }else{
+    const card=findLatestCard(code)||findIndividualCard(code);
+    if(card) watchlist=[makeWatchSnapshot(card),...watchlist];
+  }
+  saveWatchlist();
+  render();
+}
+function findIndividualCard(code){
+  if(!individual?.categories) return null;
+  return individual.categories.find(card=>card.code===code)||null;
+}
+function watchedCards(){
+  return watchlist.map(saved=>{
+    const latest=findLatestCard(saved.code);
+    const card={...(latest||saved),addedAt:saved.addedAt,addedAtText:saved.addedAtText,watchedFrom:saved.watchedFrom,watched:true};
+    if(!latest){
+      card.status="관심 유지";
+      card.reason=saved.reason||"현재 상위 후보에는 없지만 관심 목록에 보관 중";
+      card.failed=[...(card.failed||[]),"현재 스캔 상위 목록 미노출"];
+    }
+    return card;
+  });
+}
 
 function tone(card){
   const score=card.priorityScore??card.score;
@@ -98,6 +149,9 @@ function renderCard(card){
         <span class="badge ${tone(card)}">우선 ${card.priorityScore??card.score}점</span>
         ${card.rawScore!==undefined?`<span class="badge gray">원점 ${card.rawScore}점</span>`:""}
         ${card.poolDisplay?`<span class="badge yellow">후보풀 보충</span>`:""}
+        ${card.addedAtText?`<span class="badge gray">관심일 ${card.addedAtText}</span>`:""}
+        ${card.watchedFrom?`<span class="badge gray">등록 ${card.watchedFrom}</span>`:""}
+        <button class="badge ${isWatched(card.code)?"yellow":"gray"}" onclick="toggleWatch('${card.code}')">${isWatched(card.code)?"관심해제":"관심등록"}</button>
       </div>
       <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.priorityScore??card.score,100))}%"></div></div>
       <div class="metrics">
@@ -131,6 +185,7 @@ function currentCards(){
   if(active==="당일급등") return data.dayTradeStocks||[];
   if(active==="외국기관수급") return data.supplyStocks||[];
   if(active==="회피") return data.avoidanceStocks||[];
+  if(active==="관심") return watchedCards();
   return [];
 }
 
@@ -227,10 +282,12 @@ function render(){
   const cards=filterCards(currentCards());
   const notice=active==="포착"&&data.capturePoolNotice
     ? `<div class="notice">${data.capturePoolNotice}</div>`
+    : active==="관심"
+    ? `<div class="notice">관심 종목 ${watchlist.length}개를 모아 보고 있습니다. 관심해제를 누르면 목록에서 사라집니다.</div>`
     : "";
   document.getElementById("content").innerHTML=cards.length
     ? notice+cards.map(renderCard).join("")
-    : `<div class="notice">${active} 조건에 맞는 종목이 없습니다.</div>`;
+    : `<div class="notice">${active==="관심"?"아직 관심 종목이 없습니다. 종목 카드에서 관심등록을 눌러 모아보세요.":`${active} 조건에 맞는 종목이 없습니다.`}</div>`;
 }
 
 async function loadData(force=false){

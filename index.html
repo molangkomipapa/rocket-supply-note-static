@@ -12,7 +12,7 @@ body{margin:0;background:#020617;color:#fff;font-family:-apple-system,BlinkMacSy
 .panel,.card,.notice{background:#0f172a;border:1px solid #1e293b;border-radius:22px;padding:16px;margin-bottom:14px}.panelLine{color:#cbd5e1;font-size:14px;line-height:1.6}.small{font-size:12px;color:#94a3b8}
 .search{display:flex;gap:8px;margin-bottom:14px}input{flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:18px;color:#fff;padding:13px;font-size:15px}button{border:0;border-radius:16px;padding:10px 13px;font-weight:800}
 .tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px}.tab{background:#0f172a;color:#94a3b8;white-space:nowrap}.tab.active{background:#fff;color:#020617}
-.row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.name{font-size:20px;font-weight:850}.code,.muted{color:#94a3b8;font-size:13px}.badge{display:inline-flex;font-size:12px;padding:7px 10px;border-radius:999px;white-space:nowrap}.green{background:rgba(16,185,129,.16);color:#6ee7b7}.blue{background:rgba(59,130,246,.16);color:#93c5fd}.orange{background:rgba(249,115,22,.16);color:#fdba74}.yellow{background:rgba(234,179,8,.16);color:#fde68a}.red{background:rgba(239,68,68,.16);color:#fca5a5}.gray{background:#1e293b;color:#cbd5e1}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.name{font-size:20px;font-weight:850}.code,.muted{color:#94a3b8;font-size:13px}.badge{display:inline-flex;font-size:12px;padding:7px 10px;border-radius:999px;white-space:nowrap;text-decoration:none;align-items:center}.green{background:rgba(16,185,129,.16);color:#6ee7b7}.blue{background:rgba(59,130,246,.16);color:#93c5fd}.orange{background:rgba(249,115,22,.16);color:#fdba74}.yellow{background:rgba(234,179,8,.16);color:#fde68a}.red{background:rgba(239,68,68,.16);color:#fca5a5}.gray{background:#1e293b;color:#cbd5e1}
 .badges{display:flex;gap:8px;overflow-x:auto;margin:12px 0}.bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin:8px 0 14px}.fill{height:100%;background:#93c5fd}.reason{background:#020617;border-radius:18px;padding:12px;margin-top:12px}.reason p{margin:5px 0 0;color:#cbd5e1;font-size:14px;line-height:1.55}
 .checklist{display:grid;gap:7px;margin-top:9px}.check{display:flex;gap:8px;align-items:center;color:#cbd5e1;font-size:13px}.mark{width:18px;height:18px;border-radius:50%;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8}.check.ok .mark{background:rgba(16,185,129,.16);color:#6ee7b7}.check.no{color:#64748b}
 .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.metric{background:#1e293b;border-radius:14px;padding:10px}.metric b{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}.metric span{font-size:13px;color:#e2e8f0}
@@ -125,6 +125,8 @@ function tone(card){
   return "yellow";
 }
 
+function chartUrl(code){return `https://finance.naver.com/item/fchart.naver?code=${code}`}
+
 function renderChecklist(items){
   return (items||[]).map(item=>`
     <div class="check ${item.ok?'ok':'no'}">
@@ -151,6 +153,7 @@ function renderCard(card){
         ${card.poolDisplay?`<span class="badge yellow">후보풀 보충</span>`:""}
         ${card.addedAtText?`<span class="badge gray">관심일 ${card.addedAtText}</span>`:""}
         ${card.watchedFrom?`<span class="badge gray">등록 ${card.watchedFrom}</span>`:""}
+        <a class="badge green" href="${chartUrl(card.code)}" target="_blank" rel="noopener noreferrer">차트보기</a>
         <button class="badge ${isWatched(card.code)?"yellow":"gray"}" onclick="toggleWatch('${card.code}')">${isWatched(card.code)?"관심해제":"관심등록"}</button>
       </div>
       <div class="bar"><div class="fill" style="width:${Math.max(0,Math.min(card.priorityScore??card.score,100))}%"></div></div>

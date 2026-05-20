@@ -5,6 +5,8 @@ export function createKisClient({
   appKey,
   appSecret
 }) {
+  const dataCache = getKisDataCache(runtimeCache);
+
   async function kisGet(path, trId, params) {
     const accessToken = await getAccessToken(Date.now());
     const url = new URL(`${baseUrl}${path}`);
@@ -81,27 +83,36 @@ export function createKisClient({
 
   async function getMarketCapRankFromApi(market, count) {
     const marketCode = market === "KOSDAQ" ? "1001" : "0001";
-    const data = await kisGet(
-      "/uapi/domestic-stock/v1/ranking/market-cap",
-      "FHPST01740000",
-      {
-        fid_cond_mrkt_div_code: marketCode,
-        fid_input_iscd: "0000",
-        fid_div_cls_code: "0",
-        fid_trgt_cls_code: "0",
-        fid_trgt_exls_cls_code: "0"
+    const list = await withDataCache(
+      dataCache,
+      "marketRank",
+      `${market}:${count}`,
+      5 * 60 * 1000,
+      async () => {
+        const data = await kisGet(
+          "/uapi/domestic-stock/v1/ranking/market-cap",
+          "FHPST01740000",
+          {
+            fid_cond_mrkt_div_code: marketCode,
+            fid_input_iscd: "0000",
+            fid_div_cls_code: "0",
+            fid_trgt_cls_code: "0",
+            fid_trgt_exls_cls_code: "0"
+          }
+        );
+        const output = data.output || data.output1 || data.output2 || [];
+
+        return output
+          .map((x) => ({
+            code: x.mksc_shrn_iscd || x.stck_shrn_iscd || x.iscd || x.code,
+            name: x.hts_kor_isnm || x.prdt_name || x.name || "",
+            market
+          }))
+          .filter((x) => x.code && x.name)
+          .slice(0, count);
       }
     );
-    const list = data.output || data.output1 || data.output2 || [];
-
-    return list
-      .map((x) => ({
-        code: x.mksc_shrn_iscd || x.stck_shrn_iscd || x.iscd || x.code,
-        name: x.hts_kor_isnm || x.prdt_name || x.name || "",
-        market
-      }))
-      .filter((x) => x.code && x.name)
-      .slice(0, count);
+    return list.slice(0, count);
   }
 
   async function getMarketCapRankFromMaster(market, count) {
@@ -135,50 +146,75 @@ export function createKisClient({
   }
 
   async function getPrice(code, fallbackMarketCode = marketDataCode) {
-    const data = await kisGet(
-      "/uapi/domestic-stock/v1/quotations/inquire-price",
-      "FHKST01010100",
-      {
-        fid_cond_mrkt_div_code: fallbackMarketCode,
-        fid_input_iscd: code
+    return withDataCache(
+      dataCache,
+      "price",
+      `${fallbackMarketCode}:${code}`,
+      30 * 1000,
+      async () => {
+        const data = await kisGet(
+          "/uapi/domestic-stock/v1/quotations/inquire-price",
+          "FHKST01010100",
+          {
+            fid_cond_mrkt_div_code: fallbackMarketCode,
+            fid_input_iscd: code
+          }
+        );
+        const output = data.output || null;
+        if (output || fallbackMarketCode === "J") return output;
+        return getPrice(code, "J");
       }
     );
-    const output = data.output || null;
-    if (output || fallbackMarketCode === "J") return output;
-    return getPrice(code, "J");
   }
 
   async function getDailyChart(code, fallbackMarketCode = marketDataCode) {
-    const data = await kisGet(
-      "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
-      "FHKST03010100",
-      {
-        fid_cond_mrkt_div_code: fallbackMarketCode,
-        fid_input_iscd: code,
-        fid_input_date_1: "20240101",
-        fid_input_date_2: todayYmd(),
-        fid_period_div_code: "D",
-        fid_org_adj_prc: "0"
+    const endDate = todayYmd();
+    return withDataCache(
+      dataCache,
+      "daily",
+      `${fallbackMarketCode}:${code}:${endDate}`,
+      10 * 60 * 1000,
+      async () => {
+        const data = await kisGet(
+          "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+          "FHKST03010100",
+          {
+            fid_cond_mrkt_div_code: fallbackMarketCode,
+            fid_input_iscd: code,
+            fid_input_date_1: "20240101",
+            fid_input_date_2: endDate,
+            fid_period_div_code: "D",
+            fid_org_adj_prc: "0"
+          }
+        );
+        const output = data.output2 || [];
+        if (output.length || fallbackMarketCode === "J") return output;
+        return getDailyChart(code, "J");
       }
     );
-    const output = data.output2 || [];
-    if (output.length || fallbackMarketCode === "J") return output;
-    return getDailyChart(code, "J");
   }
 
   async function getProgramTradeDaily(code, fallbackMarketCode = marketDataCode) {
-    const data = await kisGet(
-      "/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily",
-      "FHPPG04650201",
-      {
-        fid_cond_mrkt_div_code: fallbackMarketCode,
-        fid_input_iscd: code,
-        fid_input_date_1: ""
+    return withDataCache(
+      dataCache,
+      "program",
+      `${fallbackMarketCode}:${code}`,
+      5 * 60 * 1000,
+      async () => {
+        const data = await kisGet(
+          "/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily",
+          "FHPPG04650201",
+          {
+            fid_cond_mrkt_div_code: fallbackMarketCode,
+            fid_input_iscd: code,
+            fid_input_date_1: ""
+          }
+        );
+        const output = data.output || data.output1 || data.output2 || [];
+        if (output.length || fallbackMarketCode === "J") return output;
+        return getProgramTradeDaily(code, "J");
       }
     );
-    const output = data.output || data.output1 || data.output2 || [];
-    if (output.length || fallbackMarketCode === "J") return output;
-    return getProgramTradeDaily(code, "J");
   }
 
   async function getStockMeta(code) {
@@ -196,6 +232,42 @@ export function createKisClient({
     getProgramTradeDaily,
     getStockMeta
   };
+}
+
+function getKisDataCache(runtimeCache) {
+  runtimeCache.kisData = runtimeCache.kisData || {
+    price: {},
+    daily: {},
+    program: {},
+    marketRank: {}
+  };
+  return runtimeCache.kisData;
+}
+
+async function withDataCache(cache, bucket, key, ttlMs, loader) {
+  const now = Date.now();
+  const store = cache[bucket] || (cache[bucket] = {});
+  const cached = store[key];
+  if (cached && now - cached.savedAt < ttlMs) {
+    return cached.value;
+  }
+
+  const value = await loader();
+  store[key] = { savedAt: now, value };
+  pruneDataCache(store, 5000);
+  return value;
+}
+
+function pruneDataCache(store, maxEntries) {
+  const keys = Object.keys(store);
+  if (keys.length <= maxEntries) return;
+
+  keys
+    .sort((a, b) => store[a].savedAt - store[b].savedAt)
+    .slice(0, keys.length - maxEntries)
+    .forEach((key) => {
+      delete store[key];
+    });
 }
 
 function uniqueStocks(items) {

@@ -318,6 +318,10 @@ export default async function handler(req, res) {
         totalMatches,
         sectorBoard,
         displayLimits: CATEGORY_LIMITS,
+        performance: {
+          elapsedMs: Date.now() - requestStartedAt,
+          dataCache: getCacheSizes(runtimeCache.kisData)
+        },
         capturePoolNotice: capturePoolAdded
           ? "완전 조건 충족 종목 부족으로 후보풀 상위 종목을 함께 표시합니다."
           : "",
@@ -377,6 +381,17 @@ export default async function handler(req, res) {
       message: error.message
     });
   }
+}
+
+
+function getCacheSizes(cache) {
+  if (!cache) return {};
+  return Object.fromEntries(
+    Object.entries(cache).map(([key, value]) => [
+      key,
+      value ? Object.keys(value).length : 0
+    ])
+  );
 }
 
 function makeScanScope({
